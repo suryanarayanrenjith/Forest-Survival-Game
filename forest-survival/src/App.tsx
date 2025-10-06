@@ -1,4 +1,3 @@
-import { Analytics } from "@vercel/analytics/next"
 import { useRef, useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { GunModel } from './utils/GunModel';

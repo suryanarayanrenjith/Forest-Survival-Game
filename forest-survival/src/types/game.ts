@@ -9,6 +9,8 @@ export interface Weapon {
   bulletSpeed: number;
   bulletColor: number;
   spread: number;
+  unlockScore: number;
+  autoFire?: boolean; // Whether weapon fires automatically when mouse held
 }
 
 export const WEAPONS: Record<string, Weapon> = {
@@ -20,7 +22,8 @@ export const WEAPONS: Record<string, Weapon> = {
     reloadTime: 1000,
     bulletSpeed: 2,
     bulletColor: 0xffff00,
-    spread: 0.02
+    spread: 0.02,
+    unlockScore: 0
   },
   rifle: {
     name: '🔪 Rifle',
@@ -30,7 +33,8 @@ export const WEAPONS: Record<string, Weapon> = {
     reloadTime: 1500,
     bulletSpeed: 3,
     bulletColor: 0xff6600,
-    spread: 0.01
+    spread: 0.01,
+    unlockScore: 100
   },
   shotgun: {
     name: '💥 Shotgun',
@@ -40,7 +44,56 @@ export const WEAPONS: Record<string, Weapon> = {
     reloadTime: 2000,
     bulletSpeed: 1.5,
     bulletColor: 0xff0000,
-    spread: 0.15
+    spread: 0.15,
+    unlockScore: 200
+  },
+  smg: {
+    name: '🔫 SMG',
+    damage: 20,
+    fireRate: 100,
+    maxAmmo: 40,
+    reloadTime: 1200,
+    bulletSpeed: 2.5,
+    bulletColor: 0x00ffff,
+    spread: 0.03,
+    unlockScore: 300,
+    autoFire: true
+  },
+  sniper: {
+    name: '🎯 Sniper',
+    damage: 100,
+    fireRate: 1200,
+    maxAmmo: 5,
+    reloadTime: 2500,
+    bulletSpeed: 5,
+    bulletColor: 0x00ff00,
+    spread: 0.005,
+    unlockScore: 500,
+    autoFire: false
+  },
+  minigun: {
+    name: '⚡ Minigun',
+    damage: 30,
+    fireRate: 50,
+    maxAmmo: 100,
+    reloadTime: 3000,
+    bulletSpeed: 3,
+    bulletColor: 0xff00ff,
+    spread: 0.05,
+    unlockScore: 800,
+    autoFire: true
+  },
+  launcher: {
+    name: '🚀 Launcher',
+    damage: 150,
+    fireRate: 2000,
+    maxAmmo: 3,
+    reloadTime: 3500,
+    bulletSpeed: 1.8,
+    bulletColor: 0xff4400,
+    spread: 0.01,
+    unlockScore: 1200,
+    autoFire: false
   }
 };
 
@@ -98,4 +151,5 @@ export interface GameState {
   combo: number;
   killStreak: number;
   currentWeapon: string;
+  unlockedWeapons: string[];
 }

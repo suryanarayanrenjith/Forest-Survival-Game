@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState } from 'react';
 import * as THREE from 'three';
+import { Analytics } from '@vercel/analytics/react';
 import { GunModel } from './utils/GunModel';
 import { MuzzleFlash, BulletTracer, ImpactEffect } from './utils/Effects';
 import { soundManager } from './utils/SoundManager';
@@ -65,6 +66,8 @@ const t = (key: string): string => TRANSLATIONS[locale]?.[key as keyof typeof TR
 const ForestSurvivalGame = () => {
   const mountRef = useRef<HTMLDivElement>(null);
   const [gameStarted, setGameStarted] = useState(false);
+  const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
+  const [timeOfDay, setTimeOfDay] = useState<'day' | 'night'>('day');
   const [isPaused, setIsPaused] = useState(false);
   const [showWaveComplete, setShowWaveComplete] = useState(false);
   const [powerUpMessage, setPowerUpMessage] = useState<string>('');
@@ -79,16 +82,43 @@ const ForestSurvivalGame = () => {
     isVictory: false,
     combo: 0,
     killStreak: 0,
-    currentWeapon: 'pistol'
+    currentWeapon: 'pistol',
+    unlockedWeapons: ['pistol']
   });
 
   useEffect(() => {
     if (!gameStarted) return;
 
-    // Scene setup with better fog
+    // Scene setup with day/night atmosphere
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x001100, 0.015);
-    scene.background = new THREE.Color(0x001100);
+
+    // Day/Night colors and settings
+    const daySettings = {
+      skyColor: 0x87CEEB, // Sky blue
+      fogColor: 0xb0c4de, // Light steel blue
+      fogDensity: 0.005,
+      ambientColor: 0xffffff,
+      ambientIntensity: 0.8,
+      sunColor: 0xfff4e6,
+      sunIntensity: 1.8,
+      sunPosition: { x: 100, y: 150, z: -50 }
+    };
+
+    const nightSettings = {
+      skyColor: 0x1a1a3a, // Lighter night blue for better visibility
+      fogColor: 0x2a2a4e, // Lighter fog
+      fogDensity: 0.004, // Less dense fog
+      ambientColor: 0x6688aa, // Much brighter ambient
+      ambientIntensity: 1.2, // Significantly increased
+      moonColor: 0xccddff, // Brighter moon
+      moonIntensity: 2.5, // Much stronger moonlight
+      moonPosition: { x: -80, y: 120, z: 100 }
+    };
+
+    const settings = timeOfDay === 'day' ? daySettings : nightSettings;
+
+    scene.fog = new THREE.FogExp2(settings.fogColor, settings.fogDensity);
+    scene.background = new THREE.Color(settings.skyColor);
 
     // Camera
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -100,17 +130,19 @@ const ForestSurvivalGame = () => {
     const renderHeight = Math.floor(window.innerHeight / pixelSize);
 
     const renderer = new THREE.WebGLRenderer({
-      antialias: false, // Disabled for pixelated look
+      antialias: true, // Enabled for AAA quality
       powerPreference: "high-performance",
-      stencil: false,
+      stencil: true,
       depth: true,
-      alpha: false
+      alpha: false,
+      logarithmicDepthBuffer: true // Better depth precision
     });
     renderer.setSize(renderWidth, renderHeight, false);
     renderer.setPixelRatio(1); // Fixed at 1 for consistent pixelation
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.BasicShadowMap; // Fastest shadow type
-    renderer.toneMapping = THREE.NoToneMapping; // Disabled for performance
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Soft shadows for AAA quality
+    renderer.toneMapping = THREE.ACESFilmicToneMapping; // Cinematic tone mapping
+    renderer.toneMappingExposure = timeOfDay === 'day' ? 1.0 : 1.2;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     // Style canvas to scale up pixelated render
@@ -126,35 +158,171 @@ const ForestSurvivalGame = () => {
       mountRef.current.appendChild(renderer.domElement);
     }
 
-    // SIMPLIFIED lighting for performance
-    const ambientLight = new THREE.AmbientLight(0x606060, 1.2); // Brighter ambient, no shadows needed
+    // === AAA-QUALITY POST-PROCESSING SYSTEM ===
+    const renderTarget1 = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat,
+      type: THREE.UnsignedByteType,
+      stencilBuffer: false
+    });
+
+    // Final Color Grading & Tone Mapping
+    const finalShader = {
+      uniforms: {
+        tDiffuse: { value: null },
+        tBloom: { value: null },
+        brightness: { value: timeOfDay === 'day' ? 1.15 : 1.25 },
+        contrast: { value: timeOfDay === 'day' ? 1.25 : 1.35 },
+        saturation: { value: timeOfDay === 'day' ? 1.4 : 1.3 },
+        vignette: { value: 0.35 },
+        vignetteHardness: { value: 0.6 }
+      },
+      vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      fragmentShader: `
+        uniform sampler2D tDiffuse;
+        uniform sampler2D tBloom;
+        uniform float brightness;
+        uniform float contrast;
+        uniform float saturation;
+        uniform float vignette;
+        uniform float vignetteHardness;
+        varying vec2 vUv;
+
+        vec3 adjustSaturation(vec3 color, float sat) {
+          float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+          return mix(vec3(luma), color, sat);
+        }
+
+        vec3 ACESFilm(vec3 x) {
+          float a = 2.51;
+          float b = 0.03;
+          float c = 2.43;
+          float d = 0.59;
+          float e = 0.14;
+          return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+        }
+
+        void main() {
+          vec4 baseColor = texture2D(tDiffuse, vUv);
+          vec4 bloomColor = texture2D(tBloom, vUv);
+
+          vec3 color = baseColor.rgb + bloomColor.rgb;
+          color *= brightness;
+          color = (color - 0.5) * contrast + 0.5;
+          color = adjustSaturation(color, saturation);
+          color = ACESFilm(color);
+
+          vec2 center = vUv - 0.5;
+          float dist = length(center);
+          float vig = 1.0 - smoothstep(0.0, vignetteHardness, dist * vignette);
+          color *= vig;
+
+          gl_FragColor = vec4(color, 1.0);
+        }
+      `
+    };
+
+    const finalMaterial = new THREE.ShaderMaterial(finalShader);
+
+    const postQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), finalMaterial);
+    const postScene = new THREE.Scene();
+    postScene.add(postQuad);
+    const postCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
+    // Debug: Verify shaders compiled successfully
+    console.log('Post-processing material created:', finalMaterial.isShaderMaterial);
+
+    // Check for WebGL errors
+    renderer.domElement.addEventListener('webglcontextlost', (event) => {
+      event.preventDefault();
+      console.error('WebGL context lost!');
+    });
+
+    renderer.domElement.addEventListener('webglcontextrestored', () => {
+      console.log('WebGL context restored');
+    });
+
+    // RTX-Style Lighting System
+    const ambientLight = new THREE.AmbientLight(settings.ambientColor, settings.ambientIntensity);
     scene.add(ambientLight);
 
-    const moonLight = new THREE.DirectionalLight(0x8888ff, 0.8);
-    moonLight.position.set(100, 150, -100);
-    moonLight.castShadow = true;
-    moonLight.shadow.camera.near = 0.5;
-    moonLight.shadow.camera.far = 400;
-    moonLight.shadow.camera.left = -100;
-    moonLight.shadow.camera.right = 100;
-    moonLight.shadow.camera.top = 100;
-    moonLight.shadow.camera.bottom = -100;
-    moonLight.shadow.mapSize.width = 512; // Much smaller shadow map
-    moonLight.shadow.mapSize.height = 512;
-    scene.add(moonLight);
+    // Main directional light (Sun/Moon) with RTX-like shadows
+    const mainLightColor = timeOfDay === 'day' ? daySettings.sunColor : nightSettings.moonColor;
+    const mainLightIntensity = timeOfDay === 'day' ? daySettings.sunIntensity : nightSettings.moonIntensity;
+    const mainLight = new THREE.DirectionalLight(mainLightColor, mainLightIntensity);
 
-    // Removed hemisphere light for performance
-    // Removed player spotlight for performance
+    const lightPos = timeOfDay === 'day' ? daySettings.sunPosition : nightSettings.moonPosition;
+    mainLight.position.set(lightPos.x, lightPos.y, lightPos.z);
+    mainLight.castShadow = true;
 
-    // LOW-POLY Ground for performance
-    const groundGeometry = new THREE.PlaneGeometry(500, 500, 20, 20); // Reduced segments
-    const groundMaterial = new THREE.MeshLambertMaterial({ // Cheaper than Standard
-      color: 0x1a5c1a,
-      flatShading: true // Low-poly aesthetic
+    // High-quality shadow settings for RTX feel
+    mainLight.shadow.camera.near = 1;
+    mainLight.shadow.camera.far = 500;
+    mainLight.shadow.camera.left = -150;
+    mainLight.shadow.camera.right = 150;
+    mainLight.shadow.camera.top = 150;
+    mainLight.shadow.camera.bottom = -150;
+    mainLight.shadow.mapSize.width = 2048; // Higher resolution shadows
+    mainLight.shadow.mapSize.height = 2048;
+    mainLight.shadow.bias = -0.0001;
+    scene.add(mainLight);
+
+    // Hemisphere light for natural sky reflection
+    if (timeOfDay === 'day') {
+      const skyLight = new THREE.HemisphereLight(0x87CEEB, 0x4a7c4a, 0.8);
+      scene.add(skyLight);
+    } else {
+      const skyLight = new THREE.HemisphereLight(0x4466aa, 0x1a3a2a, 0.9);
+      scene.add(skyLight);
+    }
+
+    // Volumetric light effect (god rays simulation)
+    const volumetricLight = new THREE.DirectionalLight(
+      timeOfDay === 'day' ? 0xffffaa : 0x8899ff,
+      timeOfDay === 'day' ? 0.4 : 0.6
+    );
+    volumetricLight.position.set(lightPos.x * 0.5, lightPos.y * 0.8, lightPos.z * 0.5);
+    scene.add(volumetricLight);
+
+    // Fill light (opposite side of main light for balanced illumination)
+    const fillLight = new THREE.DirectionalLight(
+      timeOfDay === 'day' ? 0xaaccff : 0x6677aa,
+      timeOfDay === 'day' ? 0.3 : 0.5
+    );
+    fillLight.position.set(-lightPos.x * 0.6, lightPos.y * 0.4, -lightPos.z * 0.6);
+    scene.add(fillLight);
+
+    // Rim/Back light for dramatic silhouettes
+    const rimLight = new THREE.DirectionalLight(
+      timeOfDay === 'day' ? 0xffffff : 0xccddff,
+      timeOfDay === 'day' ? 0.5 : 0.8
+    );
+    rimLight.position.set(lightPos.x * 0.3, lightPos.y * 1.2, lightPos.z);
+    scene.add(rimLight);
+
+    // Additional ambient fill for night mode visibility
+    if (timeOfDay === 'night') {
+      const nightFillLight = new THREE.AmbientLight(0x3344aa, 0.4);
+      scene.add(nightFillLight);
+    }
+
+    // INFINITE LOW-POLY Ground with day/night adaptation
+    const groundGeometry = new THREE.PlaneGeometry(2000, 2000, 40, 40);
+    const groundColor = timeOfDay === 'day' ? 0x4a8c4a : 0x2a4a3a;
+    const groundEmissive = timeOfDay === 'day' ? 0x2a5a2a : 0x1a2a2a;
+    const groundMaterial = new THREE.MeshStandardMaterial({
+      color: groundColor,
+      flatShading: true,
+      emissive: groundEmissive,
+      emissiveIntensity: timeOfDay === 'day' ? 0.15 : 0.4,
+      roughness: 0.85,
+      metalness: 0.05
     });
     const ground = new THREE.Mesh(groundGeometry, groundMaterial);
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
+    ground.castShadow = false;
     scene.add(ground);
 
     // Subtle ground variation
@@ -165,31 +333,47 @@ const ForestSurvivalGame = () => {
     groundGeometry.attributes.position.needsUpdate = true;
     groundGeometry.computeVertexNormals();
 
+    // Update ground position to follow camera seamlessly
+    const updateGroundPosition = (playerX: number, playerZ: number) => {
+      // Keep ground centered under player for infinite world
+      ground.position.x = playerX;
+      ground.position.z = playerZ;
+    };
+
     // REMOVED grass patches for maximum performance
     // Low-poly aesthetic doesn't need extra details
 
-    // LOW-POLY Trees for performance
+    // INFINITE WORLD GENERATION - Trees for performance
     const trees: Tree[] = [];
+    const CHUNK_SIZE = 100;
+    const TREE_DENSITY = 0.3; // trees per unit area
+    const loadedChunks = new Set<string>();
+
     const createTree = (x: number, z: number): Tree => {
       const group = new THREE.Group();
 
       const height = 8 + Math.random() * 4;
       const trunkGeometry = new THREE.CylinderGeometry(0.4, 0.6, height, 4); // 4 sides = very low poly
       const trunkMaterial = new THREE.MeshLambertMaterial({ // Cheaper material
-        color: 0x3d2817,
-        flatShading: true // Low-poly look
+        color: 0x4a3520,
+        flatShading: true, // Low-poly look
+        emissive: 0x201510,
+        emissiveIntensity: 0.1
       });
       const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
       trunk.castShadow = true;
       group.add(trunk);
 
-      // Simple 2-layer leaves instead of 4
+      // Simple 2-layer leaves with color variation
       for (let i = 0; i < 2; i++) {
         const size = 3.5 - i * 0.7;
         const leavesGeometry = new THREE.ConeGeometry(size, 6 - i * 1.5, 4); // 4 sides
+        const leafColor = Math.random() > 0.5 ? 0x0f5d0f : 0x0d4d0d;
         const leavesMaterial = new THREE.MeshLambertMaterial({
-          color: 0x0d4d0d,
-          flatShading: true
+          color: leafColor,
+          flatShading: true,
+          emissive: 0x052505,
+          emissiveIntensity: 0.2
         });
         const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
         leaves.position.y = height/2 + 1 + i * 4;
@@ -201,15 +385,56 @@ const ForestSurvivalGame = () => {
       return { mesh: group, x, z };
     };
 
-    for (let i = 0; i < 100; i++) { // Further reduced to 100
-      const x = (Math.random() - 0.5) * 480;
-      const z = (Math.random() - 0.5) * 480;
-      if (Math.sqrt(x*x + z*z) > 20) {
+    const generateChunk = (chunkX: number, chunkZ: number) => {
+      const chunkKey = `${chunkX},${chunkZ}`;
+      if (loadedChunks.has(chunkKey)) return;
+
+      loadedChunks.add(chunkKey);
+      const startX = chunkX * CHUNK_SIZE;
+      const startZ = chunkZ * CHUNK_SIZE;
+
+      const treesInChunk = Math.floor(CHUNK_SIZE * CHUNK_SIZE * TREE_DENSITY / 100);
+      for (let i = 0; i < treesInChunk; i++) {
+        const x = startX + Math.random() * CHUNK_SIZE;
+        const z = startZ + Math.random() * CHUNK_SIZE;
         const tree = createTree(x, z);
         trees.push(tree);
         scene.add(tree.mesh);
       }
-    }
+    };
+
+    const updateWorldGeneration = (playerX: number, playerZ: number) => {
+      const chunkX = Math.floor(playerX / CHUNK_SIZE);
+      const chunkZ = Math.floor(playerZ / CHUNK_SIZE);
+
+      // Load chunks around player (3x3 grid)
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          generateChunk(chunkX + dx, chunkZ + dz);
+        }
+      }
+
+      // Remove distant trees to save memory
+      for (let i = trees.length - 1; i >= 0; i--) {
+        const tree = trees[i];
+        const distance = Math.sqrt(
+          Math.pow(tree.x - playerX, 2) + Math.pow(tree.z - playerZ, 2)
+        );
+        if (distance > CHUNK_SIZE * 4) {
+          scene.remove(tree.mesh);
+          trees.splice(i, 1);
+        }
+      }
+    };
+
+    // Initial world generation
+    generateChunk(0, 0);
+    generateChunk(0, 1);
+    generateChunk(1, 0);
+    generateChunk(1, 1);
+    generateChunk(-1, 0);
+    generateChunk(0, -1);
+    generateChunk(-1, -1);
 
     // Gun Model - CRITICAL FIX
     const gunModel = new GunModel('pistol');
@@ -235,6 +460,22 @@ const ForestSurvivalGame = () => {
     let currentWeapon = 'pistol';
     let canShoot = true;
     let isReloading = false;
+    let unlockedWeapons = ['pistol'];
+
+    // Check and unlock weapons based on score
+    const checkWeaponUnlocks = () => {
+      let newUnlock = false;
+      Object.keys(WEAPONS).forEach(weaponKey => {
+        const weapon = WEAPONS[weaponKey];
+        if (score >= weapon.unlockScore && !unlockedWeapons.includes(weaponKey)) {
+          unlockedWeapons.push(weaponKey);
+          setPowerUpMessage(`🔓 ${weapon.name} Unlocked!`);
+          setTimeout(() => setPowerUpMessage(''), 3000);
+          newUnlock = true;
+        }
+      });
+      return newUnlock;
+    };
 
     // Effects arrays
     const muzzleFlashes: MuzzleFlash[] = [];
@@ -247,12 +488,13 @@ const ForestSurvivalGame = () => {
     const powerUps: PowerUp[] = [];
     const particles: Particle[] = [];
 
-// Create enemy with better visuals
+// Create enemy with enhanced visuals
     const createEnemy = (x: number, z: number, type: 'normal' | 'fast' | 'tank' | 'boss' = 'normal'): Enemy => {
       const enemyGroup = new THREE.Group();
 
-      let bodyColor = 0x8b0000;
-      let headColor = 0xa00000;
+      let bodyColor = 0xcc0000;
+      let headColor = 0xff3333;
+      let accentColor = 0x880000;
       let enemyHealth = 50;
       let enemySpeed = 0.08;
       let enemyDamage = 0.3;
@@ -261,8 +503,9 @@ const ForestSurvivalGame = () => {
 
       switch(type) {
         case 'fast':
-          bodyColor = 0x00008b;
-          headColor = 0x0000ff;
+          bodyColor = 0x0066ff;
+          headColor = 0x3399ff;
+          accentColor = 0x003399;
           enemyHealth = 30;
           enemySpeed = 0.15;
           enemyDamage = 0.2;
@@ -270,8 +513,9 @@ const ForestSurvivalGame = () => {
           bodyScale = 0.7;
           break;
         case 'tank':
-          bodyColor = 0x2f4f2f;
-          headColor = 0x556b2f;
+          bodyColor = 0x339933;
+          headColor = 0x66cc66;
+          accentColor = 0x1a661a;
           enemyHealth = 150;
           enemySpeed = 0.04;
           enemyDamage = 0.5;
@@ -279,8 +523,9 @@ const ForestSurvivalGame = () => {
           bodyScale = 1.5;
           break;
         case 'boss':
-          bodyColor = 0x8b008b;
-          headColor = 0xff00ff;
+          bodyColor = 0xcc00cc;
+          headColor = 0xff33ff;
+          accentColor = 0x880088;
           enemyHealth = 300;
           enemySpeed = 0.05;
           enemyDamage = 1.0;
@@ -289,58 +534,93 @@ const ForestSurvivalGame = () => {
           break;
       }
 
-      // LOW-POLY enemy body
-      const bodyGeometry = new THREE.CylinderGeometry(0.5 * bodyScale, 0.5 * bodyScale, 2 * bodyScale, 4); // 4 sides
-      const bodyMaterial = new THREE.MeshLambertMaterial({
+      // Enhanced LOW-POLY enemy body with better shape
+      const torsoGeometry = new THREE.BoxGeometry(1 * bodyScale, 1.5 * bodyScale, 0.6 * bodyScale);
+      const torsoMaterial = new THREE.MeshLambertMaterial({
         color: bodyColor,
         flatShading: true,
         emissive: bodyColor,
-        emissiveIntensity: 0.1
+        emissiveIntensity: 0.2
       });
-      const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
-      body.castShadow = true;
-      enemyGroup.add(body);
+      const torso = new THREE.Mesh(torsoGeometry, torsoMaterial);
+      torso.position.y = 0.2 * bodyScale;
+      torso.castShadow = true;
+      enemyGroup.add(torso);
 
-      // LOW-POLY head
-      const headGeometry = new THREE.BoxGeometry(bodyScale, bodyScale, bodyScale); // Box instead of sphere
+      // Arms
+      const armGeometry = new THREE.BoxGeometry(0.3 * bodyScale, 1.2 * bodyScale, 0.3 * bodyScale);
+      const armMaterial = new THREE.MeshLambertMaterial({
+        color: accentColor,
+        flatShading: true,
+        emissive: accentColor,
+        emissiveIntensity: 0.15
+      });
+
+      const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+      leftArm.position.set(-0.65 * bodyScale, 0.2 * bodyScale, 0);
+      leftArm.castShadow = true;
+      enemyGroup.add(leftArm);
+
+      const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+      rightArm.position.set(0.65 * bodyScale, 0.2 * bodyScale, 0);
+      rightArm.castShadow = true;
+      enemyGroup.add(rightArm);
+
+      // Legs
+      const legGeometry = new THREE.BoxGeometry(0.35 * bodyScale, 1 * bodyScale, 0.35 * bodyScale);
+      const legMaterial = new THREE.MeshLambertMaterial({
+        color: accentColor,
+        flatShading: true
+      });
+
+      const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+      leftLeg.position.set(-0.3 * bodyScale, -1 * bodyScale, 0);
+      leftLeg.castShadow = true;
+      enemyGroup.add(leftLeg);
+
+      const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
+      rightLeg.position.set(0.3 * bodyScale, -1 * bodyScale, 0);
+      rightLeg.castShadow = true;
+      enemyGroup.add(rightLeg);
+
+      // Enhanced head with better proportions
+      const headGeometry = new THREE.BoxGeometry(0.8 * bodyScale, 0.8 * bodyScale, 0.8 * bodyScale);
       const headMaterial = new THREE.MeshLambertMaterial({
         color: headColor,
         flatShading: true,
         emissive: headColor,
-        emissiveIntensity: 0.15
+        emissiveIntensity: 0.25
       });
       const head = new THREE.Mesh(headGeometry, headMaterial);
-      head.position.y = 1.5 * bodyScale;
+      head.position.y = 1.3 * bodyScale;
       head.castShadow = true;
-      head.rotation.y = Math.PI / 4; // Rotate for diamond look
+      head.rotation.y = Math.PI / 4;
       enemyGroup.add(head);
 
-      // Simple glowing eyes
-      const eyeGeometry = new THREE.BoxGeometry(0.15 * bodyScale, 0.15 * bodyScale, 0.05 * bodyScale);
+      // Glowing eyes with better positioning
+      const eyeGeometry = new THREE.BoxGeometry(0.12 * bodyScale, 0.12 * bodyScale, 0.06 * bodyScale);
       const eyeMaterial = new THREE.MeshBasicMaterial({
-        color: 0xff0000
+        color: 0xffff00
       });
       const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-      leftEye.position.set(-0.2 * bodyScale, 1.6 * bodyScale, 0.5 * bodyScale);
+      leftEye.position.set(-0.25 * bodyScale, 1.4 * bodyScale, 0.4 * bodyScale);
       enemyGroup.add(leftEye);
 
       const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
-      rightEye.position.set(0.2 * bodyScale, 1.6 * bodyScale, 0.5 * bodyScale);
+      rightEye.position.set(0.25 * bodyScale, 1.4 * bodyScale, 0.4 * bodyScale);
       enemyGroup.add(rightEye);
-
-      // Removed enemy light for performance
 
       enemyGroup.position.set(x, 1.5 * bodyScale, z);
       scene.add(enemyGroup);
 
       return {
         mesh: enemyGroup,
-        health: enemyHealth,
-        maxHealth: enemyHealth,
-        speed: enemySpeed + Math.random() * 0.02,
+        health: enemyHealth * diffSettings.healthMult,
+        maxHealth: enemyHealth * diffSettings.healthMult,
+        speed: (enemySpeed + Math.random() * 0.02) * diffSettings.speedMult,
         dead: false,
         type,
-        damage: enemyDamage,
+        damage: enemyDamage * diffSettings.damageMult,
         scoreValue: enemyScore
       };
     };
@@ -390,13 +670,23 @@ const ForestSurvivalGame = () => {
       impactEffects.push(effect);
     };
 
+    // Rebalanced difficulty multipliers (old hard is now easy)
+    const difficultySettings = {
+      easy: { healthMult: 1.5, speedMult: 1.3, damageMult: 1.5, spawnMult: 1.3, regenRate: 0 },
+      medium: { healthMult: 2.5, speedMult: 1.8, damageMult: 2.2, spawnMult: 1.8, regenRate: 0.2 },
+      hard: { healthMult: 4.0, speedMult: 2.5, damageMult: 3.5, spawnMult: 2.5, regenRate: 0.5 }
+    };
+    const diffSettings = difficultySettings[difficulty];
+
     const spawnWave = () => {
-      const enemyCount = 5 + wave * 2;
+      const baseCount = 5 + wave * 2;
+      const enemyCount = Math.floor(baseCount * diffSettings.spawnMult);
+
       for (let i = 0; i < enemyCount; i++) {
         const angle = (Math.PI * 2 * i) / enemyCount;
         const distance = 40 + Math.random() * 30;
-        const x = Math.cos(angle) * distance;
-        const z = Math.sin(angle) * distance;
+        const x = Math.cos(angle) * distance + camera.position.x;
+        const z = Math.sin(angle) * distance + camera.position.z;
 
         let type: 'normal' | 'fast' | 'tank' | 'boss' = 'normal';
         const rand = Math.random();
@@ -408,14 +698,52 @@ const ForestSurvivalGame = () => {
         enemies.push(createEnemy(x, z, type));
       }
 
+      // Spawn power-ups more frequently
       if (wave % 2 === 0) {
         for (let i = 0; i < 2; i++) {
           const angle = Math.random() * Math.PI * 2;
           const distance = 20 + Math.random() * 15;
           const types: ('health' | 'ammo' | 'speed')[] = ['health', 'ammo', 'speed'];
           const type = types[Math.floor(Math.random() * types.length)];
-          powerUps.push(createPowerUp(Math.cos(angle) * distance, Math.sin(angle) * distance, type));
+          powerUps.push(createPowerUp(
+            Math.cos(angle) * distance + camera.position.x,
+            Math.sin(angle) * distance + camera.position.z,
+            type
+          ));
         }
+      }
+    };
+
+    // Continuous enemy spawning for endless mode - more aggressive
+    let lastSpawnTime = Date.now();
+    const spawnInterval = difficulty === 'easy' ? 10000 : difficulty === 'medium' ? 7000 : 5000;
+
+    const continuousSpawn = () => {
+      const currentTime = Date.now();
+      const maxEnemies = difficulty === 'easy' ? 25 : difficulty === 'medium' ? 35 : 50;
+
+      if (currentTime - lastSpawnTime > spawnInterval && enemies.length < maxEnemies) {
+        // Spawn more enemies on harder difficulties
+        const baseSpawn = difficulty === 'easy' ? 2 : difficulty === 'medium' ? 3 : 4;
+        const spawnCount = Math.floor(baseSpawn + Math.random() * 3);
+
+        for (let i = 0; i < spawnCount; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const distance = 50 + Math.random() * 20;
+          const x = Math.cos(angle) * distance + camera.position.x;
+          const z = Math.sin(angle) * distance + camera.position.z;
+
+          let type: 'normal' | 'fast' | 'tank' | 'boss' = 'normal';
+          const rand = Math.random();
+
+          // More bosses and tanks on harder difficulties
+          if (wave >= 3 && rand < (difficulty === 'hard' ? 0.15 : 0.05)) type = 'boss';
+          else if (wave >= 2 && rand < (difficulty === 'hard' ? 0.35 : 0.2)) type = 'tank';
+          else if (rand < (difficulty === 'hard' ? 0.50 : 0.4)) type = 'fast';
+
+          enemies.push(createEnemy(x, z, type));
+        }
+        lastSpawnTime = currentTime;
       }
     };
 
@@ -449,29 +777,36 @@ const ForestSurvivalGame = () => {
 
       keys[e.code] = true;
 
-      if (e.code === 'Digit1' && !isReloading) {
-        currentWeapon = 'pistol';
-        ammo = WEAPONS.pistol.maxAmmo;
-        gunModel.switchWeapon('pistol');
-        updateGameState();
-      }
-      if (e.code === 'Digit2' && !isReloading) {
-        currentWeapon = 'rifle';
-        ammo = WEAPONS.rifle.maxAmmo;
-        gunModel.switchWeapon('rifle');
-        updateGameState();
-      }
-      if (e.code === 'Digit3' && !isReloading) {
-        currentWeapon = 'shotgun';
-        ammo = WEAPONS.shotgun.maxAmmo;
-        gunModel.switchWeapon('shotgun');
-        updateGameState();
+      // Weapon switching with unlock check
+      const weaponKeys: Record<string, string> = {
+        'Digit1': 'pistol',
+        'Digit2': 'rifle',
+        'Digit3': 'shotgun',
+        'Digit4': 'smg',
+        'Digit5': 'sniper',
+        'Digit6': 'minigun',
+        'Digit7': 'launcher'
+      };
+
+      if (weaponKeys[e.code] && !isReloading) {
+        const weaponName = weaponKeys[e.code];
+        if (unlockedWeapons.includes(weaponName)) {
+          currentWeapon = weaponName;
+          ammo = WEAPONS[weaponName].maxAmmo;
+          gunModel.switchWeapon(weaponName as any);
+          updateGameState();
+        } else {
+          const weapon = WEAPONS[weaponName];
+          setPowerUpMessage(`🔒 ${weapon.name} - Need ${weapon.unlockScore} score`);
+          setTimeout(() => setPowerUpMessage(''), 2000);
+        }
       }
 
       if (e.code === 'KeyR' && !isReloading && !paused && ammo < WEAPONS[currentWeapon].maxAmmo) {
         isReloading = true;
         const weapon = WEAPONS[currentWeapon];
         soundManager.play('reload', 0.5);
+        gunModel.triggerReload(); // Trigger reload animation
         setTimeout(() => {
           ammo = weapon.maxAmmo;
           isReloading = false;
@@ -563,16 +898,34 @@ const ForestSurvivalGame = () => {
     };
 
     let mouseDown = false;
+    let autoFireInterval: number | null = null;
+
     const onMouseDown = (e: MouseEvent) => {
       if (e.button === 0 && !paused && !isGameOver) {
         mouseDown = true;
         shoot();
+
+        // Start auto-fire for weapons that support it
+        const weapon = WEAPONS[currentWeapon];
+        if (weapon.autoFire && !autoFireInterval) {
+          autoFireInterval = window.setInterval(() => {
+            if (mouseDown && !paused && !isGameOver) {
+              shoot();
+            }
+          }, weapon.fireRate);
+        }
       }
     };
 
     const onMouseUp = (e: MouseEvent) => {
       if (e.button === 0) {
         mouseDown = false;
+
+        // Stop auto-fire
+        if (autoFireInterval) {
+          clearInterval(autoFireInterval);
+          autoFireInterval = null;
+        }
       }
     };
 
@@ -599,7 +952,38 @@ const ForestSurvivalGame = () => {
 
     document.addEventListener('mousemove', onMouseMove);
 
+    // Mouse wheel weapon switching
+    const onMouseWheel = (e: WheelEvent) => {
+      if (!paused && !isGameOver) {
+        e.preventDefault();
+
+        const weaponKeys = Object.keys(WEAPONS);
+        const unlockedKeys = weaponKeys.filter(key => unlockedWeapons.includes(key));
+        const currentIndex = unlockedKeys.indexOf(currentWeapon);
+
+        if (e.deltaY > 0) {
+          // Scroll down - next weapon
+          const nextIndex = (currentIndex + 1) % unlockedKeys.length;
+          currentWeapon = unlockedKeys[nextIndex];
+        } else if (e.deltaY < 0) {
+          // Scroll up - previous weapon
+          const prevIndex = (currentIndex - 1 + unlockedKeys.length) % unlockedKeys.length;
+          currentWeapon = unlockedKeys[prevIndex];
+        }
+
+        // Update weapon
+        const weapon = WEAPONS[currentWeapon];
+        ammo = weapon.maxAmmo;
+        gunModel.switchWeapon(currentWeapon as 'pistol' | 'rifle' | 'shotgun' | 'smg' | 'sniper' | 'minigun' | 'launcher');
+        updateGameState();
+        soundManager.play('reload', 0.4);
+      }
+    };
+
+    document.addEventListener('wheel', onMouseWheel, { passive: false });
+
     const updateGameState = () => {
+      checkWeaponUnlocks();
       setGameState({
         health,
         ammo,
@@ -608,10 +992,11 @@ const ForestSurvivalGame = () => {
         enemiesKilled,
         wave,
         isGameOver,
-        isVictory: enemiesKilled >= 50,
+        isVictory: false, // No victory - endless mode
         combo,
         killStreak,
-        currentWeapon
+        currentWeapon,
+        unlockedWeapons: [...unlockedWeapons]
       });
     };
 
@@ -624,24 +1009,43 @@ const ForestSurvivalGame = () => {
     // Game loop
     let animationId: number;
     const clock = new THREE.Clock();
+    let frameCount = 0;
 
     const animate = () => {
       animationId = requestAnimationFrame(animate);
       const delta = clock.getDelta();
 
+      // Debug: Log first few frames
+      if (frameCount < 3) {
+        console.log(`Frame ${frameCount}: Rendering scene with ${scene.children.length} objects`);
+        frameCount++;
+      }
+
       if (isGameOver || paused) {
+        // Still apply post-processing when paused
+        renderer.setRenderTarget(renderTarget1);
         renderer.render(scene, camera);
+        postQuad.material = finalMaterial;
+        finalMaterial.uniforms.tDiffuse.value = renderTarget1.texture;
+        finalMaterial.uniforms.tBloom.value = renderTarget1.texture;
+        renderer.setRenderTarget(null);
+        renderer.render(postScene, postCamera);
         return;
       }
 
-      // Update gun recoil
+      // Update gun animations
       gunModel.updateRecoil(delta);
 
       // Removed player light update for performance
 
       // Player movement
+      const isMoving = keys['KeyW'] || keys['KeyS'] || keys['KeyA'] || keys['KeyD'];
       const isRunning = keys['ShiftLeft'] || keys['ShiftRight'];
       const currentSpeed = isRunning ? moveSpeed * sprintMultiplier : moveSpeed;
+
+      // Update gun sway and bobbing based on movement
+      gunModel.updateIdleSway(delta);
+      gunModel.updateWalkBob(delta, isMoving, isRunning && isMoving);
 
       const direction = new THREE.Vector3();
       camera.getWorldDirection(direction);
@@ -651,6 +1055,7 @@ const ForestSurvivalGame = () => {
       const right = new THREE.Vector3();
       right.crossVectors(camera.up, direction).normalize();
 
+      // Movement can occur during jump
       if (keys['KeyW'] || keys['ArrowUp']) {
         camera.position.addScaledVector(direction, currentSpeed);
       }
@@ -664,7 +1069,8 @@ const ForestSurvivalGame = () => {
         camera.position.addScaledVector(right, -currentSpeed);
       }
 
-      if (keys['Space'] && !isJumping && camera.position.y <= groundLevel) {
+      // Jump - can jump while moving
+      if (keys['Space'] && !isJumping && camera.position.y <= groundLevel + 0.1) {
         velocityY = jumpPower;
         isJumping = true;
       }
@@ -685,8 +1091,12 @@ const ForestSurvivalGame = () => {
         camera.position.y = groundLevel + Math.sin(Date.now() * bobSpeed * 0.01) * bobAmount;
       }
 
-      camera.position.x = Math.max(-240, Math.min(240, camera.position.x));
-      camera.position.z = Math.max(-240, Math.min(240, camera.position.z));
+      // Infinite world - update chunks and ground based on player position
+      updateWorldGeneration(camera.position.x, camera.position.z);
+      updateGroundPosition(camera.position.x, camera.position.z);
+
+      // Continuous enemy spawning
+      continuousSpawn();
 
       // Update effects
       for (let i = muzzleFlashes.length - 1; i >= 0; i--) {
@@ -804,10 +1214,8 @@ const ForestSurvivalGame = () => {
 
               updateGameState();
 
-              // Check for wave complete or victory
-              if (enemiesKilled >= 50) {
-                // Victory condition - do nothing here, will be handled below
-              } else if (enemies.length === 0) {
+              // Check for wave complete - endless mode
+              if (enemies.length === 0) {
                 wave++;
                 combo = 0;
                 killStreak = 0;
@@ -829,6 +1237,11 @@ const ForestSurvivalGame = () => {
       for (let i = enemies.length - 1; i >= 0; i--) {
         const enemy = enemies[i];
         if (enemy.dead) continue;
+
+        // Enemy health regeneration on higher difficulties
+        if (diffSettings.regenRate > 0 && enemy.health < enemy.maxHealth) {
+          enemy.health = Math.min(enemy.maxHealth, enemy.health + diffSettings.regenRate * delta * 10);
+        }
 
         // Simple breathing animation
         enemy.mesh.position.y += Math.sin(Date.now() * 0.003 + i) * 0.01;
@@ -862,13 +1275,19 @@ const ForestSurvivalGame = () => {
         }
       }
 
-      if (enemiesKilled >= 50 && !isGameOver) {
-        isGameOver = true;
-        updateGameState();
-        document.exitPointerLock();
-      }
+      // Endless mode - no victory condition, only game over on death
 
+      // === AAA-QUALITY POST-PROCESSING ===
+      // Render scene to render target
+      renderer.setRenderTarget(renderTarget1);
       renderer.render(scene, camera);
+
+      // Apply final composite with all effects
+      postQuad.material = finalMaterial;
+      finalMaterial.uniforms.tDiffuse.value = renderTarget1.texture;
+      finalMaterial.uniforms.tBloom.value = renderTarget1.texture; // Use same for bloom blend
+      renderer.setRenderTarget(null);
+      renderer.render(postScene, postCamera);
     };
 
     animate();
@@ -893,6 +1312,7 @@ const ForestSurvivalGame = () => {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mousedown', onMouseDown);
       document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('wheel', onMouseWheel);
       document.removeEventListener('pointerlockchange', onPointerLockChange);
 
       if (renderer.domElement) {
@@ -903,16 +1323,27 @@ const ForestSurvivalGame = () => {
         cancelAnimationFrame(animationId);
       }
 
+      if (autoFireInterval) {
+        clearInterval(autoFireInterval);
+      }
+
       if (mountNode && renderer.domElement) {
         mountNode.removeChild(renderer.domElement);
       }
 
+      // Cleanup post-processing
+      renderTarget1.dispose();
+      finalMaterial.dispose();
+      postQuad.geometry.dispose();
+
       renderer.dispose();
     };
-  }, [gameStarted]);
+  }, [gameStarted, difficulty, timeOfDay]);
 
-  const startGame = () => {
+  const startGame = (selectedDifficulty: 'easy' | 'medium' | 'hard', selectedTimeOfDay: 'day' | 'night') => {
     soundManager.initialize();
+    setDifficulty(selectedDifficulty);
+    setTimeOfDay(selectedTimeOfDay);
     setGameStarted(true);
   };
 
@@ -930,6 +1361,7 @@ const ForestSurvivalGame = () => {
 
   return (
     <div className="relative w-full h-screen overflow-hidden bg-black">
+      <Analytics />
       <div ref={mountRef} className="absolute inset-0" style={{ zIndex: 0 }} />
 
       <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 10 }}>
@@ -943,6 +1375,8 @@ const ForestSurvivalGame = () => {
           weaponName={WEAPONS[gameState.currentWeapon].name}
           combo={gameState.combo}
           t={t}
+          unlockedWeapons={gameState.unlockedWeapons}
+          currentWeapon={gameState.currentWeapon}
         />
       </div>
 

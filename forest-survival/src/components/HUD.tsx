@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { WEAPONS } from '../types/game';
 
 interface HUDProps {
   health: number;
@@ -10,9 +11,11 @@ interface HUDProps {
   weaponName: string;
   combo: number;
   t: (key: string) => string;
+  unlockedWeapons: string[];
+  currentWeapon: string;
 }
 
-const HUD = ({ health, ammo, maxAmmo, enemiesKilled, score, wave, weaponName, combo, t }: HUDProps) => {
+const HUD = ({ health, ammo, maxAmmo, enemiesKilled, score, wave, weaponName, combo, t, unlockedWeapons, currentWeapon }: HUDProps) => {
   const [damageFlash, setDamageFlash] = useState(false);
   const [prevHealth, setPrevHealth] = useState(health);
 
@@ -70,18 +73,28 @@ const HUD = ({ health, ammo, maxAmmo, enemiesKilled, score, wave, weaponName, co
             <span className="text-yellow-400 font-bold text-lg">🔫</span>
             <div className="flex-1">
               <div className="text-xs text-gray-400 mb-1">{weaponName}</div>
-              <div className="flex gap-1">
-                {Array.from({ length: maxAmmo }).map((_, i) => (
+              {/* Use bar for large ammo counts, bullets for small */}
+              {maxAmmo <= 30 ? (
+                <div className="flex gap-1 flex-wrap max-w-[200px]">
+                  {Array.from({ length: maxAmmo }).map((_, i) => (
+                    <div
+                      key={i}
+                      className={`w-2 h-6 rounded-sm transition-all ${
+                        i < ammo ? 'bg-yellow-400' : 'bg-gray-700'
+                      }`}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="w-48 h-4 bg-gray-800 rounded-lg overflow-hidden border border-gray-700">
                   <div
-                    key={i}
-                    className={`w-2 h-6 rounded-sm transition-all ${
-                      i < ammo ? 'bg-yellow-400' : 'bg-gray-700'
-                    }`}
+                    className="h-full bg-gradient-to-r from-yellow-600 to-yellow-400 transition-all duration-300"
+                    style={{ width: `${(ammo / maxAmmo) * 100}%` }}
                   />
-                ))}
-              </div>
+                </div>
+              )}
             </div>
-            <span className="font-mono text-2xl font-bold text-yellow-400">{ammo}</span>
+            <span className="font-mono text-2xl font-bold text-yellow-400">{ammo}/{maxAmmo}</span>
           </div>
         </div>
 
@@ -90,7 +103,7 @@ const HUD = ({ health, ammo, maxAmmo, enemiesKilled, score, wave, weaponName, co
           <div className="flex items-center gap-2">
             <span className="text-purple-400 font-bold">💀</span>
             <span className="text-sm text-gray-300">{t('enemies')}:</span>
-            <span className="ml-auto font-mono text-lg font-bold text-purple-400">{enemiesKilled}/50</span>
+            <span className="ml-auto font-mono text-lg font-bold text-purple-400">{enemiesKilled}</span>
           </div>
         </div>
 
@@ -121,6 +134,50 @@ const HUD = ({ health, ammo, maxAmmo, enemiesKilled, score, wave, weaponName, co
             </div>
           </div>
         )}
+      </div>
+
+      {/* Weapon Selector - Bottom Right */}
+      <div className="absolute bottom-4 right-4 space-y-2 select-none">
+        <div className="text-white text-sm font-bold mb-2 text-center bg-black bg-opacity-80 px-3 py-1 rounded-lg">
+          WEAPONS (1-7)
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {Object.entries(WEAPONS).map(([key, weapon], index) => {
+            const isUnlocked = unlockedWeapons.includes(key);
+            const isCurrent = currentWeapon === key;
+
+            return (
+              <div
+                key={key}
+                className={`px-3 py-2 rounded-lg border-2 transition-all ${
+                  isCurrent
+                    ? 'bg-blue-600 bg-opacity-90 border-blue-400 scale-105'
+                    : isUnlocked
+                    ? 'bg-black bg-opacity-80 border-green-600 hover:bg-opacity-90'
+                    : 'bg-black bg-opacity-60 border-gray-600'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono text-gray-400">{index + 1}</span>
+                  <div className="flex-1">
+                    <div className={`text-xs font-bold ${isUnlocked ? 'text-white' : 'text-gray-500'}`}>
+                      {isUnlocked ? weapon.name : '🔒'}
+                    </div>
+                    {isUnlocked ? (
+                      <div className="text-[10px] text-gray-400">
+                        DMG: {weapon.damage}
+                      </div>
+                    ) : (
+                      <div className="text-[10px] text-red-400">
+                        {weapon.unlockScore} pts
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </>
   );

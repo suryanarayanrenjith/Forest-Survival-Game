@@ -15,7 +15,7 @@ interface HUDProps {
   currentWeapon: string;
 }
 
-const HUD = ({ health, ammo, maxAmmo, enemiesKilled, score, wave, weaponName, combo, t, unlockedWeapons, currentWeapon }: HUDProps) => {
+const HUD = ({ health, ammo, maxAmmo, enemiesKilled, score, wave, weaponName, combo, unlockedWeapons, currentWeapon }: HUDProps) => {
   const [damageFlash, setDamageFlash] = useState(false);
   const [prevHealth, setPrevHealth] = useState(health);
 
@@ -28,120 +28,71 @@ const HUD = ({ health, ammo, maxAmmo, enemiesKilled, score, wave, weaponName, co
   }, [health, prevHealth]);
 
   const getHealthColor = () => {
-    if (health > 60) return 'from-green-600 to-green-400';
-    if (health > 30) return 'from-yellow-600 to-yellow-400';
-    return 'from-red-600 to-red-400';
-  };
-
-  const getHealthBarClass = () => {
-    if (health > 60) return 'border-green-600';
-    if (health > 30) return 'border-yellow-600';
-    return 'border-red-600 animate-pulse';
+    if (health > 60) return 'bg-green-500';
+    if (health > 30) return 'bg-yellow-500';
+    return 'bg-red-500';
   };
 
   return (
     <>
       {/* Damage Flash Effect */}
       {damageFlash && (
-        <div className="fixed inset-0 bg-red-600 opacity-30 pointer-events-none animate-pulse" />
+        <div className="fixed inset-0 bg-red-600 opacity-20 pointer-events-none" style={{ animation: 'fadeOut 0.2s ease-out' }} />
       )}
 
-      {/* Main HUD Container */}
-      <div className="absolute top-4 left-4 space-y-3 select-none" style={{ animation: 'slideInFromTop 0.5s ease-out' }}>
-        {/* Health Bar */}
-        <div className={`bg-black bg-opacity-90 text-white px-4 py-3 rounded-lg border-2 ${getHealthBarClass()} transition-all backdrop-blur-sm`}>
-          <div className="flex items-center gap-3">
-            <span className="text-red-500 font-bold text-lg">❤️</span>
-            <div className="flex-1">
-              <div className="text-xs text-gray-400 mb-1">{t('health')}</div>
-              <div className="w-48 h-6 bg-gray-800 rounded-lg overflow-hidden border border-gray-700">
-                <div
-                  className={`h-full bg-gradient-to-r ${getHealthColor()} transition-all duration-300 relative`}
-                  style={{ width: `${health}%` }}
-                >
-                  <div className="absolute inset-0 bg-white opacity-20 animate-pulse"></div>
-                </div>
-              </div>
-            </div>
-            <span className="font-mono text-xl font-bold min-w-[60px] text-right">{Math.max(0, Math.floor(health))}</span>
+      {/* Top Left - Minimal Stats */}
+      <div className="absolute top-6 left-6 space-y-3 select-none font-mono">
+        {/* Health - Ultra Minimal */}
+        <div className="flex items-center gap-3">
+          <div className="w-48 h-2 bg-black bg-opacity-40 rounded-full overflow-hidden backdrop-blur-sm border border-white border-opacity-10">
+            <div
+              className={`h-full ${getHealthColor()} transition-all duration-300`}
+              style={{ width: `${Math.max(0, health)}%` }}
+            />
           </div>
+          <span className="text-white text-2xl font-bold drop-shadow-lg">{Math.max(0, Math.floor(health))}</span>
         </div>
 
-        {/* Ammo Counter */}
-        <div className="bg-black bg-opacity-90 text-white px-4 py-3 rounded-lg border-2 border-yellow-600 backdrop-blur-sm">
-          <div className="flex items-center gap-3">
-            <span className="text-yellow-400 font-bold text-lg">🔫</span>
-            <div className="flex-1">
-              <div className="text-xs text-gray-400 mb-1">{weaponName}</div>
-              {/* Use bar for large ammo counts, bullets for small */}
-              {maxAmmo <= 30 ? (
-                <div className="flex gap-1 flex-wrap max-w-[200px]">
-                  {Array.from({ length: maxAmmo }).map((_, i) => (
-                    <div
-                      key={i}
-                      className={`w-2 h-6 rounded-sm transition-all ${
-                        i < ammo ? 'bg-yellow-400' : 'bg-gray-700'
-                      }`}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="w-48 h-4 bg-gray-800 rounded-lg overflow-hidden border border-gray-700">
-                  <div
-                    className="h-full bg-gradient-to-r from-yellow-600 to-yellow-400 transition-all duration-300"
-                    style={{ width: `${(ammo / maxAmmo) * 100}%` }}
-                  />
-                </div>
-              )}
-            </div>
-            <span className="font-mono text-2xl font-bold text-yellow-400">{ammo}/{maxAmmo}</span>
-          </div>
+        {/* Ammo - Ultra Minimal */}
+        <div className="flex items-center gap-3">
+          <div className="text-white text-sm font-semibold drop-shadow-lg opacity-80">{weaponName}</div>
+          <span className="text-yellow-400 text-3xl font-bold drop-shadow-lg">{ammo}</span>
+          <span className="text-white text-lg opacity-50">/ {maxAmmo}</span>
         </div>
-
-        {/* Enemy Counter */}
-        <div className="bg-black bg-opacity-90 text-white px-4 py-2 rounded-lg border-2 border-purple-600 backdrop-blur-sm">
-          <div className="flex items-center gap-2">
-            <span className="text-purple-400 font-bold">💀</span>
-            <span className="text-sm text-gray-300">{t('enemies')}:</span>
-            <span className="ml-auto font-mono text-lg font-bold text-purple-400">{enemiesKilled}</span>
-          </div>
-        </div>
-
-        {/* Score Display */}
-        <div className="bg-black bg-opacity-90 text-white px-4 py-2 rounded-lg border-2 border-blue-600 backdrop-blur-sm">
-          <div className="flex items-center gap-2">
-            <span className="text-blue-400 font-bold">⭐</span>
-            <span className="text-sm text-gray-300">{t('score')}:</span>
-            <span className="ml-auto font-mono text-lg font-bold text-blue-400">{score}</span>
-          </div>
-        </div>
-
-        {/* Wave Display */}
-        <div className="bg-black bg-opacity-90 text-white px-4 py-2 rounded-lg border-2 border-green-600 backdrop-blur-sm">
-          <div className="flex items-center gap-2">
-            <span className="text-green-400 font-bold">🌊</span>
-            <span className="text-sm text-gray-300">{t('wave')}:</span>
-            <span className="ml-auto font-mono text-lg font-bold text-green-400">{wave}</span>
-          </div>
-        </div>
-
-        {/* Combo Display */}
-        {combo > 1 && (
-          <div className="bg-gradient-to-r from-orange-600 to-red-600 text-white px-4 py-2 rounded-lg border-2 border-orange-400 animate-pulse" style={{ animation: 'scaleIn 0.3s ease-out' }}>
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-xl">🔥</span>
-              <span className="font-bold text-lg">COMBO x{combo}</span>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Weapon Selector - Bottom Right */}
-      <div className="absolute bottom-4 right-4 space-y-2 select-none">
-        <div className="text-white text-sm font-bold mb-2 text-center bg-black bg-opacity-80 px-3 py-1 rounded-lg">
-          WEAPONS (1-7)
+      {/* Top Right - Score & Stats */}
+      <div className="absolute top-6 right-6 text-right space-y-2 select-none font-mono">
+        <div className="text-white text-sm opacity-70 drop-shadow-lg">SCORE</div>
+        <div className="text-cyan-400 text-4xl font-bold drop-shadow-lg">{score.toLocaleString()}</div>
+        <div className="flex justify-end gap-4 mt-3 text-white text-sm">
+          <div className="flex items-center gap-1.5">
+            <span className="opacity-60">💀</span>
+            <span className="font-bold drop-shadow-lg">{enemiesKilled}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="opacity-60">🌊</span>
+            <span className="font-bold drop-shadow-lg">{wave}</span>
+          </div>
         </div>
-        <div className="grid grid-cols-2 gap-2">
+      </div>
+
+      {/* Combo - Center Top */}
+      {combo > 1 && (
+        <div className="absolute top-6 left-1/2 transform -translate-x-1/2" style={{ animation: 'bounceIn 0.3s ease-out' }}>
+          <div className="bg-gradient-to-r from-orange-500 to-red-500 text-white px-8 py-3 rounded-full shadow-2xl">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">🔥</span>
+              <span className="font-bold text-2xl font-mono">x{combo} COMBO</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Weapon Selector - Bottom Right - Minimal */}
+      <div className="absolute bottom-6 right-6 select-none">
+        <div className="text-white text-xs font-mono mb-2 text-right opacity-50">WEAPONS</div>
+        <div className="grid grid-cols-3 gap-1.5">
           {Object.entries(WEAPONS).map(([key, weapon], index) => {
             const isUnlocked = unlockedWeapons.includes(key);
             const isCurrent = currentWeapon === key;
@@ -149,35 +100,36 @@ const HUD = ({ health, ammo, maxAmmo, enemiesKilled, score, wave, weaponName, co
             return (
               <div
                 key={key}
-                className={`px-3 py-2 rounded-lg border-2 transition-all ${
+                title={isUnlocked ? `${weapon.name} (${index + 1})` : `Unlock at ${weapon.unlockScore} pts`}
+                className={`w-14 h-14 rounded-lg transition-all flex items-center justify-center text-center relative ${
                   isCurrent
-                    ? 'bg-blue-600 bg-opacity-90 border-blue-400 scale-105'
+                    ? 'bg-cyan-500 bg-opacity-90 shadow-lg shadow-cyan-500/50 scale-110'
                     : isUnlocked
-                    ? 'bg-black bg-opacity-80 border-green-600 hover:bg-opacity-90'
-                    : 'bg-black bg-opacity-60 border-gray-600'
+                    ? 'bg-black bg-opacity-40 backdrop-blur-sm border border-white border-opacity-20 hover:bg-opacity-60'
+                    : 'bg-black bg-opacity-20 backdrop-blur-sm border border-white border-opacity-10'
                 }`}
               >
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono text-gray-400">{index + 1}</span>
-                  <div className="flex-1">
-                    <div className={`text-xs font-bold ${isUnlocked ? 'text-white' : 'text-gray-500'}`}>
-                      {isUnlocked ? weapon.name : '🔒'}
+                {isUnlocked ? (
+                  <>
+                    <span className="text-2xl">{weapon.name.split(' ')[0]}</span>
+                    <div className="absolute top-0.5 right-0.5 text-[9px] font-mono text-white bg-black bg-opacity-60 px-1 rounded">
+                      {index + 1}
                     </div>
-                    {isUnlocked ? (
-                      <div className="text-[10px] text-gray-400">
-                        DMG: {weapon.damage}
-                      </div>
-                    ) : (
-                      <div className="text-[10px] text-red-400">
-                        {weapon.unlockScore} pts
-                      </div>
-                    )}
-                  </div>
-                </div>
+                  </>
+                ) : (
+                  <span className="text-gray-600 text-xl">🔒</span>
+                )}
               </div>
             );
           })}
         </div>
+      </div>
+
+      {/* Controls Hint - Bottom Left */}
+      <div className="absolute bottom-6 left-6 text-white text-xs font-mono opacity-40 select-none space-y-1">
+        <div>Right-Click: Lock/Unlock Mouse</div>
+        <div>Mouse Wheel: Switch Weapons</div>
+        <div>R: Reload | Space: Jump</div>
       </div>
     </>
   );

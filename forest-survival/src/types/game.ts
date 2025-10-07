@@ -135,6 +135,15 @@ export interface Tree {
   z: number;
 }
 
+export interface TerrainObject {
+  mesh: THREE.Group | THREE.Mesh;
+  x: number;
+  z: number;
+  type: 'tree' | 'rock' | 'boulder' | 'bush';
+  collidable: boolean;
+  radius: number;
+}
+
 export interface Keys {
   [key: string]: boolean;
 }

@@ -6,10 +6,14 @@ import { MuzzleFlash, BulletTracer, ImpactEffect } from './utils/Effects';
 import { soundManager } from './utils/SoundManager';
 import HUD from './components/HUD';
 import MainMenu from './components/MainMenu';
+import ClassicMenu from './components/ClassicMenu';
 import GameOver from './components/GameOver';
 import PauseMenu from './components/PauseMenu';
 import Notifications from './components/Notifications';
-import { WEAPONS, type Enemy, type Bullet, type PowerUp, type Particle, type Tree, type Keys, type GameState } from './types/game';
+import MobileWarning from './components/MobileWarning';
+import APIKeyInput from './components/APIKeyInput';
+import { WEAPONS, type Enemy, type Bullet, type PowerUp, type Particle, type TerrainObject, type Keys, type GameState } from './types/game';
+import { AIGameAgent, type GameplayConfig } from './services/AIGameAgent';
 
 interface Translations {
   [key: string]: {
@@ -65,12 +69,40 @@ const t = (key: string): string => TRANSLATIONS[locale]?.[key as keyof typeof TR
 
 const ForestSurvivalGame = () => {
   const mountRef = useRef<HTMLDivElement>(null);
+  const [gameMode, setGameMode] = useState<'none' | 'ai' | 'classic'>('none');
+  const [showAPIKeyInput, setShowAPIKeyInput] = useState(false);
+  const [apiKey, setApiKey] = useState<string>('');
+  const [showMenu, setShowMenu] = useState(false);
+  const [showClassicMenu, setShowClassicMenu] = useState(false);
   const [gameStarted, setGameStarted] = useState(false);
-  const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
-  const [timeOfDay, setTimeOfDay] = useState<'day' | 'night'>('day');
+  const [aiConfig, setAiConfig] = useState<GameplayConfig | null>(null);
+  const [classicDifficulty, setClassicDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
+  const [classicTimeOfDay, setClassicTimeOfDay] = useState<'day' | 'night'>('day');
+  const [isInitializingAI, setIsInitializingAI] = useState(false);
+  const [aiError, setAiError] = useState<string>('');
   const [isPaused, setIsPaused] = useState(false);
   const [showWaveComplete, setShowWaveComplete] = useState(false);
   const [powerUpMessage, setPowerUpMessage] = useState<string>('');
+  const aiAgentRef = useRef<AIGameAgent | null>(null);
+
+  // Mobile detection
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const isSmallScreen = window.innerWidth < 1024;
+      const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+      setIsMobile(isMobileDevice || isSmallScreen || isTouchDevice);
+    };
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   const [gameState, setGameState] = useState<GameState>({
     health: 100,
     ammo: 12,
@@ -89,7 +121,34 @@ const ForestSurvivalGame = () => {
   useEffect(() => {
     if (!gameStarted) return;
 
-    // Scene setup with day/night atmosphere
+    // Determine configuration based on game mode
+    let timeOfDay: 'day' | 'night' | 'dawn' | 'dusk' | 'bloodmoon';
+    let diffSettings: any;
+
+    if (gameMode === 'ai' && aiConfig) {
+      timeOfDay = aiConfig.timeOfDay;
+      // atmosphere = aiConfig.atmosphere; // Future: implement atmosphere rendering
+      diffSettings = {
+        healthMult: aiConfig.enemyDifficulty,
+        speedMult: aiConfig.enemySpeed,
+        damageMult: aiConfig.enemyDifficulty,
+        spawnMult: aiConfig.enemySpawnRate,
+        regenRate: aiConfig.intensity === 'extreme' ? 0.5 : aiConfig.intensity === 'intense' ? 0.3 : 0,
+        progressive: aiConfig.progressiveDifficulty,
+        rampRate: aiConfig.difficultyRamp
+      };
+    } else {
+      // Classic mode
+      timeOfDay = classicTimeOfDay as any;
+      const classicSettings = {
+        easy: { healthMult: 1.5, speedMult: 1.3, damageMult: 1.5, spawnMult: 1.3, regenRate: 0 },
+        medium: { healthMult: 2.5, speedMult: 1.8, damageMult: 2.2, spawnMult: 1.8, regenRate: 0.2 },
+        hard: { healthMult: 4.0, speedMult: 2.5, damageMult: 3.5, spawnMult: 2.5, regenRate: 0.5 }
+      };
+      diffSettings = { ...classicSettings[classicDifficulty], progressive: false, rampRate: 0 };
+    }
+
+    // Scene setup with dynamic atmosphere
     const scene = new THREE.Scene();
 
     // Day/Night colors and settings
@@ -343,46 +402,134 @@ const ForestSurvivalGame = () => {
     // REMOVED grass patches for maximum performance
     // Low-poly aesthetic doesn't need extra details
 
-    // INFINITE WORLD GENERATION - Trees for performance
-    const trees: Tree[] = [];
+    // DYNAMIC INFINITE WORLD GENERATION with Enhanced Terrain
+    const terrainObjects: TerrainObject[] = [];
     const CHUNK_SIZE = 100;
-    const TREE_DENSITY = 0.3; // trees per unit area
+    const TREE_DENSITY = 0.25;
+    const ROCK_DENSITY = 0.15;
+    const BUSH_DENSITY = 0.2;
     const loadedChunks = new Set<string>();
 
-    const createTree = (x: number, z: number): Tree => {
+    // Create enhanced tree with better visuals
+    const createTree = (x: number, z: number): TerrainObject => {
       const group = new THREE.Group();
 
       const height = 8 + Math.random() * 4;
-      const trunkGeometry = new THREE.CylinderGeometry(0.4, 0.6, height, 4); // 4 sides = very low poly
-      const trunkMaterial = new THREE.MeshLambertMaterial({ // Cheaper material
+      const trunkGeometry = new THREE.CylinderGeometry(0.4, 0.6, height, 6);
+      const trunkMaterial = new THREE.MeshStandardMaterial({
         color: 0x4a3520,
-        flatShading: true, // Low-poly look
+        flatShading: true,
         emissive: 0x201510,
-        emissiveIntensity: 0.1
+        emissiveIntensity: 0.1,
+        roughness: 0.9,
+        metalness: 0.1
       });
       const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
       trunk.castShadow = true;
+      trunk.receiveShadow = true;
       group.add(trunk);
 
-      // Simple 2-layer leaves with color variation
-      for (let i = 0; i < 2; i++) {
-        const size = 3.5 - i * 0.7;
-        const leavesGeometry = new THREE.ConeGeometry(size, 6 - i * 1.5, 4); // 4 sides
-        const leafColor = Math.random() > 0.5 ? 0x0f5d0f : 0x0d4d0d;
-        const leavesMaterial = new THREE.MeshLambertMaterial({
+      // Enhanced leaves with better shape
+      for (let i = 0; i < 3; i++) {
+        const size = 4 - i * 0.8;
+        const leavesGeometry = new THREE.ConeGeometry(size, 5 - i * 1.2, 6);
+        const leafColor = Math.random() > 0.6 ? 0x1a7a1a : Math.random() > 0.5 ? 0x0f5d0f : 0x0d4d0d;
+        const leavesMaterial = new THREE.MeshStandardMaterial({
           color: leafColor,
           flatShading: true,
           emissive: 0x052505,
-          emissiveIntensity: 0.2
+          emissiveIntensity: 0.15,
+          roughness: 0.85,
+          metalness: 0.05
         });
         const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
-        leaves.position.y = height/2 + 1 + i * 4;
+        leaves.position.y = height/2 + 1 + i * 3.5;
         leaves.castShadow = true;
+        leaves.receiveShadow = true;
         group.add(leaves);
       }
 
       group.position.set(x, height/2, z);
-      return { mesh: group, x, z };
+      return { mesh: group, x, z, type: 'tree', collidable: true, radius: 2.5 };
+    };
+
+    // Create rocks for terrain variety
+    const createRock = (x: number, z: number): TerrainObject => {
+      const size = 0.8 + Math.random() * 1.5;
+      const rockGeometry = new THREE.DodecahedronGeometry(size, 0);
+      const rockColor = Math.random() > 0.5 ? 0x6a6a6a : 0x505050;
+      const rockMaterial = new THREE.MeshStandardMaterial({
+        color: rockColor,
+        flatShading: true,
+        roughness: 0.95,
+        metalness: 0.15,
+        emissive: rockColor,
+        emissiveIntensity: 0.05
+      });
+      const rock = new THREE.Mesh(rockGeometry, rockMaterial);
+      rock.castShadow = true;
+      rock.receiveShadow = true;
+      rock.position.set(x, size * 0.5, z);
+      rock.rotation.set(
+        Math.random() * Math.PI,
+        Math.random() * Math.PI,
+        Math.random() * Math.PI
+      );
+
+      return { mesh: rock, x, z, type: 'rock', collidable: true, radius: size + 0.5 };
+    };
+
+    // Create large boulders
+    const createBoulder = (x: number, z: number): TerrainObject => {
+      const size = 2.5 + Math.random() * 2;
+      const boulderGeometry = new THREE.IcosahedronGeometry(size, 0);
+      const boulderColor = Math.random() > 0.5 ? 0x555555 : 0x606060;
+      const boulderMaterial = new THREE.MeshStandardMaterial({
+        color: boulderColor,
+        flatShading: true,
+        roughness: 0.9,
+        metalness: 0.2,
+        emissive: boulderColor,
+        emissiveIntensity: 0.08
+      });
+      const boulder = new THREE.Mesh(boulderGeometry, boulderMaterial);
+      boulder.castShadow = true;
+      boulder.receiveShadow = true;
+      boulder.position.set(x, size * 0.6, z);
+      boulder.rotation.set(
+        Math.random() * Math.PI,
+        Math.random() * Math.PI,
+        Math.random() * Math.PI
+      );
+
+      return { mesh: boulder, x, z, type: 'boulder', collidable: true, radius: size + 1 };
+    };
+
+    // Create bushes
+    const createBush = (x: number, z: number): TerrainObject => {
+      const group = new THREE.Group();
+      const bushSize = 0.8 + Math.random() * 0.6;
+
+      for (let i = 0; i < 3; i++) {
+        const bushGeometry = new THREE.SphereGeometry(bushSize * (1 - i * 0.15), 4, 3);
+        const bushColor = Math.random() > 0.5 ? 0x1a6a1a : 0x156515;
+        const bushMaterial = new THREE.MeshStandardMaterial({
+          color: bushColor,
+          flatShading: true,
+          roughness: 0.9,
+          metalness: 0.05,
+          emissive: bushColor,
+          emissiveIntensity: 0.1
+        });
+        const bush = new THREE.Mesh(bushGeometry, bushMaterial);
+        bush.position.y = bushSize * 0.8 + i * bushSize * 0.3;
+        bush.castShadow = true;
+        bush.receiveShadow = true;
+        group.add(bush);
+      }
+
+      group.position.set(x, 0, z);
+      return { mesh: group, x, z, type: 'bush', collidable: false, radius: bushSize };
     };
 
     const generateChunk = (chunkX: number, chunkZ: number) => {
@@ -393,13 +540,43 @@ const ForestSurvivalGame = () => {
       const startX = chunkX * CHUNK_SIZE;
       const startZ = chunkZ * CHUNK_SIZE;
 
+      // Generate trees
       const treesInChunk = Math.floor(CHUNK_SIZE * CHUNK_SIZE * TREE_DENSITY / 100);
       for (let i = 0; i < treesInChunk; i++) {
         const x = startX + Math.random() * CHUNK_SIZE;
         const z = startZ + Math.random() * CHUNK_SIZE;
         const tree = createTree(x, z);
-        trees.push(tree);
+        terrainObjects.push(tree);
         scene.add(tree.mesh);
+      }
+
+      // Generate rocks
+      const rocksInChunk = Math.floor(CHUNK_SIZE * CHUNK_SIZE * ROCK_DENSITY / 100);
+      for (let i = 0; i < rocksInChunk; i++) {
+        const x = startX + Math.random() * CHUNK_SIZE;
+        const z = startZ + Math.random() * CHUNK_SIZE;
+        const rock = createRock(x, z);
+        terrainObjects.push(rock);
+        scene.add(rock.mesh);
+      }
+
+      // Generate occasional boulders
+      if (Math.random() > 0.7) {
+        const x = startX + Math.random() * CHUNK_SIZE;
+        const z = startZ + Math.random() * CHUNK_SIZE;
+        const boulder = createBoulder(x, z);
+        terrainObjects.push(boulder);
+        scene.add(boulder.mesh);
+      }
+
+      // Generate bushes
+      const bushesInChunk = Math.floor(CHUNK_SIZE * CHUNK_SIZE * BUSH_DENSITY / 100);
+      for (let i = 0; i < bushesInChunk; i++) {
+        const x = startX + Math.random() * CHUNK_SIZE;
+        const z = startZ + Math.random() * CHUNK_SIZE;
+        const bush = createBush(x, z);
+        terrainObjects.push(bush);
+        scene.add(bush.mesh);
       }
     };
 
@@ -414,17 +591,31 @@ const ForestSurvivalGame = () => {
         }
       }
 
-      // Remove distant trees to save memory
-      for (let i = trees.length - 1; i >= 0; i--) {
-        const tree = trees[i];
+      // Remove distant terrain objects to save memory
+      for (let i = terrainObjects.length - 1; i >= 0; i--) {
+        const obj = terrainObjects[i];
         const distance = Math.sqrt(
-          Math.pow(tree.x - playerX, 2) + Math.pow(tree.z - playerZ, 2)
+          Math.pow(obj.x - playerX, 2) + Math.pow(obj.z - playerZ, 2)
         );
         if (distance > CHUNK_SIZE * 4) {
-          scene.remove(tree.mesh);
-          trees.splice(i, 1);
+          scene.remove(obj.mesh);
+          terrainObjects.splice(i, 1);
         }
       }
+    };
+
+    // Collision detection helper
+    const checkTerrainCollision = (newX: number, newZ: number): boolean => {
+      for (const obj of terrainObjects) {
+        if (!obj.collidable) continue;
+        const dx = newX - obj.x;
+        const dz = newZ - obj.z;
+        const distance = Math.sqrt(dx * dx + dz * dz);
+        if (distance < obj.radius) {
+          return true; // Collision detected
+        }
+      }
+      return false;
     };
 
     // Initial world generation
@@ -670,13 +861,7 @@ const ForestSurvivalGame = () => {
       impactEffects.push(effect);
     };
 
-    // Rebalanced difficulty multipliers (old hard is now easy)
-    const difficultySettings = {
-      easy: { healthMult: 1.5, speedMult: 1.3, damageMult: 1.5, spawnMult: 1.3, regenRate: 0 },
-      medium: { healthMult: 2.5, speedMult: 1.8, damageMult: 2.2, spawnMult: 1.8, regenRate: 0.2 },
-      hard: { healthMult: 4.0, speedMult: 2.5, damageMult: 3.5, spawnMult: 2.5, regenRate: 0.5 }
-    };
-    const diffSettings = difficultySettings[difficulty];
+    // Difficulty settings already defined at top of useEffect
 
     const spawnWave = () => {
       const baseCount = 5 + wave * 2;
@@ -688,12 +873,24 @@ const ForestSurvivalGame = () => {
         const x = Math.cos(angle) * distance + camera.position.x;
         const z = Math.sin(angle) * distance + camera.position.z;
 
+        // Determine enemy type based on game mode
         let type: 'normal' | 'fast' | 'tank' | 'boss' = 'normal';
-        const rand = Math.random();
 
-        if (wave >= 5 && rand < 0.1) type = 'boss';
-        else if (wave >= 3 && rand < 0.3) type = 'tank';
-        else if (wave >= 2 && rand < 0.5) type = 'fast';
+        if (gameMode === 'ai' && aiConfig) {
+          // AI-controlled distribution
+          const rand = Math.random() * 100;
+          let cumulative = 0;
+          if (rand < (cumulative += aiConfig.spawnVariety.normal)) type = 'normal';
+          else if (rand < (cumulative += aiConfig.spawnVariety.fast)) type = 'fast';
+          else if (rand < (cumulative += aiConfig.spawnVariety.tank)) type = 'tank';
+          else type = 'boss';
+        } else {
+          // Classic mode distribution
+          const rand = Math.random();
+          if (wave >= 5 && rand < 0.1) type = 'boss';
+          else if (wave >= 3 && rand < 0.3) type = 'tank';
+          else if (wave >= 2 && rand < 0.5) type = 'fast';
+        }
 
         enemies.push(createEnemy(x, z, type));
       }
@@ -714,18 +911,37 @@ const ForestSurvivalGame = () => {
       }
     };
 
-    // Continuous enemy spawning for endless mode - more aggressive
+    // Continuous enemy spawning
     let lastSpawnTime = Date.now();
-    const spawnInterval = difficulty === 'easy' ? 10000 : difficulty === 'medium' ? 7000 : 5000;
+    let lastAdaptationTime = Date.now();
+
+    // Determine spawn interval based on mode
+    let spawnInterval: number;
+    let maxEnemies: number;
+
+    if (gameMode === 'ai' && aiConfig) {
+      spawnInterval = aiConfig.intensity === 'extreme' ? 4000 :
+                      aiConfig.intensity === 'intense' ? 6000 :
+                      aiConfig.intensity === 'moderate' ? 8000 : 12000;
+      maxEnemies = Math.floor(30 * aiConfig.enemySpawnRate);
+    } else {
+      // Classic mode intervals
+      spawnInterval = classicDifficulty === 'easy' ? 10000 : classicDifficulty === 'medium' ? 7000 : 5000;
+      maxEnemies = classicDifficulty === 'easy' ? 25 : classicDifficulty === 'medium' ? 35 : 50;
+    }
 
     const continuousSpawn = () => {
       const currentTime = Date.now();
-      const maxEnemies = difficulty === 'easy' ? 25 : difficulty === 'medium' ? 35 : 50;
 
       if (currentTime - lastSpawnTime > spawnInterval && enemies.length < maxEnemies) {
-        // Spawn more enemies on harder difficulties
-        const baseSpawn = difficulty === 'easy' ? 2 : difficulty === 'medium' ? 3 : 4;
-        const spawnCount = Math.floor(baseSpawn + Math.random() * 3);
+        let spawnCount: number;
+
+        if (gameMode === 'ai' && aiConfig) {
+          spawnCount = Math.floor(2 + Math.random() * 3 * aiConfig.enemySpawnRate);
+        } else {
+          const baseSpawn = classicDifficulty === 'easy' ? 2 : classicDifficulty === 'medium' ? 3 : 4;
+          spawnCount = Math.floor(baseSpawn + Math.random() * 3);
+        }
 
         for (let i = 0; i < spawnCount; i++) {
           const angle = Math.random() * Math.PI * 2;
@@ -733,19 +949,46 @@ const ForestSurvivalGame = () => {
           const x = Math.cos(angle) * distance + camera.position.x;
           const z = Math.sin(angle) * distance + camera.position.z;
 
+          // Determine enemy type
           let type: 'normal' | 'fast' | 'tank' | 'boss' = 'normal';
-          const rand = Math.random();
 
-          // More bosses and tanks on harder difficulties
-          if (wave >= 3 && rand < (difficulty === 'hard' ? 0.15 : 0.05)) type = 'boss';
-          else if (wave >= 2 && rand < (difficulty === 'hard' ? 0.35 : 0.2)) type = 'tank';
-          else if (rand < (difficulty === 'hard' ? 0.50 : 0.4)) type = 'fast';
+          if (gameMode === 'ai' && aiConfig) {
+            const rand = Math.random() * 100;
+            let cumulative = 0;
+            if (rand < (cumulative += aiConfig.spawnVariety.normal)) type = 'normal';
+            else if (rand < (cumulative += aiConfig.spawnVariety.fast)) type = 'fast';
+            else if (rand < (cumulative += aiConfig.spawnVariety.tank)) type = 'tank';
+            else type = 'boss';
+          } else {
+            const rand = Math.random();
+            if (wave >= 3 && rand < (classicDifficulty === 'hard' ? 0.15 : 0.05)) type = 'boss';
+            else if (wave >= 2 && rand < (classicDifficulty === 'hard' ? 0.35 : 0.2)) type = 'tank';
+            else if (rand < (classicDifficulty === 'hard' ? 0.50 : 0.4)) type = 'fast';
+          }
 
           enemies.push(createEnemy(x, z, type));
         }
         lastSpawnTime = currentTime;
       }
+
+      // AI Adaptation (only in AI mode)
+      if (gameMode === 'ai' && currentTime - lastAdaptationTime > 60000 && aiAgentRef.current) {
+        lastAdaptationTime = currentTime;
+        aiAgentRef.current.adaptGameplay({
+          currentWave: wave,
+          enemiesKilled,
+          playerHealth: health,
+          score,
+          survivalTime: Math.floor((currentTime - startTime) / 1000)
+        }).then(() => {
+          console.log('🤖 AI adapted gameplay configuration');
+        }).catch(err => {
+          console.error('AI adaptation failed:', err);
+        });
+      }
     };
+
+    const startTime = Date.now();
 
     spawnWave();
 
@@ -831,13 +1074,25 @@ const ForestSurvivalGame = () => {
 
     document.addEventListener('pointerlockchange', onPointerLockChange);
 
-    const onCanvasClick = () => {
-      if (!isGameOver && !paused && document.pointerLockElement !== renderer.domElement) {
+    const onCanvasClick = (e: MouseEvent) => {
+      // Left click to lock pointer
+      if (e.button === 0 && !isGameOver && !paused && document.pointerLockElement !== renderer.domElement) {
+        renderer.domElement.requestPointerLock();
+      }
+    };
+
+    const onContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      // Right click to lock/unlock pointer
+      if (document.pointerLockElement === renderer.domElement) {
+        document.exitPointerLock();
+      } else if (!isGameOver && !paused) {
         renderer.domElement.requestPointerLock();
       }
     };
 
     renderer.domElement.addEventListener('click', onCanvasClick);
+    renderer.domElement.addEventListener('contextmenu', onContextMenu);
 
     // Enhanced shooting
     const shoot = () => {
@@ -1055,18 +1310,38 @@ const ForestSurvivalGame = () => {
       const right = new THREE.Vector3();
       right.crossVectors(camera.up, direction).normalize();
 
-      // Movement can occur during jump
+      // Movement with collision detection
       if (keys['KeyW'] || keys['ArrowUp']) {
-        camera.position.addScaledVector(direction, currentSpeed);
+        const newX = camera.position.x + direction.x * currentSpeed;
+        const newZ = camera.position.z + direction.z * currentSpeed;
+        if (!checkTerrainCollision(newX, newZ)) {
+          camera.position.x = newX;
+          camera.position.z = newZ;
+        }
       }
       if (keys['KeyS'] || keys['ArrowDown']) {
-        camera.position.addScaledVector(direction, -currentSpeed);
+        const newX = camera.position.x - direction.x * currentSpeed;
+        const newZ = camera.position.z - direction.z * currentSpeed;
+        if (!checkTerrainCollision(newX, newZ)) {
+          camera.position.x = newX;
+          camera.position.z = newZ;
+        }
       }
       if (keys['KeyA'] || keys['ArrowLeft']) {
-        camera.position.addScaledVector(right, currentSpeed);
+        const newX = camera.position.x + right.x * currentSpeed;
+        const newZ = camera.position.z + right.z * currentSpeed;
+        if (!checkTerrainCollision(newX, newZ)) {
+          camera.position.x = newX;
+          camera.position.z = newZ;
+        }
       }
       if (keys['KeyD'] || keys['ArrowRight']) {
-        camera.position.addScaledVector(right, -currentSpeed);
+        const newX = camera.position.x - right.x * currentSpeed;
+        const newZ = camera.position.z - right.z * currentSpeed;
+        if (!checkTerrainCollision(newX, newZ)) {
+          camera.position.x = newX;
+          camera.position.z = newZ;
+        }
       }
 
       // Jump - can jump while moving
@@ -1317,6 +1592,7 @@ const ForestSurvivalGame = () => {
 
       if (renderer.domElement) {
         renderer.domElement.removeEventListener('click', onCanvasClick);
+        renderer.domElement.removeEventListener('contextmenu', onContextMenu);
       }
 
       if (animationId) {
@@ -1338,12 +1614,67 @@ const ForestSurvivalGame = () => {
 
       renderer.dispose();
     };
-  }, [gameStarted, difficulty, timeOfDay]);
+  }, [gameStarted, aiConfig, gameMode, classicDifficulty, classicTimeOfDay]);
 
-  const startGame = (selectedDifficulty: 'easy' | 'medium' | 'hard', selectedTimeOfDay: 'day' | 'night') => {
+  // Handle mode selection
+  const handleModeSelection = (mode: 'ai' | 'classic') => {
+    setGameMode(mode);
+    if (mode === 'ai') {
+      setShowAPIKeyInput(true);
+    } else {
+      setShowClassicMenu(true);
+    }
+  };
+
+  // Handle API key submission
+  const handleAPIKeySubmit = (key: string) => {
+    setApiKey(key);
+    setShowAPIKeyInput(false);
+    setShowMenu(true);
+  };
+
+  // Handle skip AI (go to classic menu)
+  const handleSkipAI = () => {
+    setShowAPIKeyInput(false);
+    setGameMode('classic');
+    setShowClassicMenu(true);
+  };
+
+  // Handle AI gameplay start
+  const handleAIGameStart = async (prompt: string) => {
+    setIsInitializingAI(true);
+    setAiError('');
+
+    try {
+      // Initialize AI agent
+      console.log('🤖 Initializing AI with prompt:', prompt);
+      const agent = new AIGameAgent(apiKey, prompt);
+      const config = await agent.initialize();
+
+      aiAgentRef.current = agent;
+      setAiConfig(config);
+
+      // Show loading message with AI config
+      setPowerUpMessage(`🤖 AI configured: ${config.intensity} intensity, ${config.timeOfDay} mode`);
+      setTimeout(() => setPowerUpMessage(''), 4000);
+
+      soundManager.initialize();
+      setShowMenu(false);
+      setGameStarted(true);
+      setIsInitializingAI(false);
+    } catch (error) {
+      console.error('Failed to initialize AI:', error);
+      setAiError(error instanceof Error ? error.message : 'Failed to initialize AI. Please check your API key.');
+      setIsInitializingAI(false);
+    }
+  };
+
+  // Handle classic mode start
+  const handleClassicGameStart = (difficulty: 'easy' | 'medium' | 'hard', timeOfDay: 'day' | 'night') => {
+    setClassicDifficulty(difficulty);
+    setClassicTimeOfDay(timeOfDay);
     soundManager.initialize();
-    setDifficulty(selectedDifficulty);
-    setTimeOfDay(selectedTimeOfDay);
+    setShowClassicMenu(false);
     setGameStarted(true);
   };
 
@@ -1355,8 +1686,106 @@ const ForestSurvivalGame = () => {
     window.location.reload();
   };
 
-  if (!gameStarted) {
-    return <MainMenu onStartGame={startGame} t={t} />;
+  // Show mobile warning if on mobile device
+  if (isMobile) {
+    return <MobileWarning />;
+  }
+
+  // Mode Selection (Initial Screen)
+  if (gameMode === 'none') {
+    return (
+      <div className="fixed inset-0 bg-gradient-to-b from-gray-900 via-purple-900 to-black flex items-center justify-center z-50 p-4">
+        <div className="text-center z-10 space-y-8">
+          <div style={{ animation: 'fadeIn 1s ease-out' }}>
+            <h1 className="text-5xl md:text-6xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-400 via-purple-500 to-pink-600 mb-4 tracking-wider drop-shadow-2xl">
+              {t('gameTitle')}
+            </h1>
+            <p className="text-gray-300 text-xl">Choose Your Experience</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl">
+            {/* AI Mode */}
+            <button
+              onClick={() => handleModeSelection('ai')}
+              className="bg-gradient-to-br from-purple-900 via-pink-900 to-purple-900 p-8 rounded-3xl border-2 border-purple-500 hover:border-purple-400 transition-all transform hover:scale-105 active:scale-95"
+            >
+              <div className="text-6xl mb-4">🤖</div>
+              <h2 className="text-3xl font-bold text-purple-300 mb-2">AI Mode</h2>
+              <p className="text-gray-300 mb-4">Dynamic, personalized gameplay</p>
+              <ul className="text-sm text-gray-400 space-y-2 text-left">
+                <li>✓ Describe your perfect game</li>
+                <li>✓ AI adapts to your skill</li>
+                <li>✓ Progressive difficulty</li>
+                <li>✓ Unique every time</li>
+              </ul>
+            </button>
+
+            {/* Classic Mode */}
+            <button
+              onClick={() => handleModeSelection('classic')}
+              className="bg-gradient-to-br from-green-900 via-emerald-900 to-green-900 p-8 rounded-3xl border-2 border-green-500 hover:border-green-400 transition-all transform hover:scale-105 active:scale-95"
+            >
+              <div className="text-6xl mb-4">🎮</div>
+              <h2 className="text-3xl font-bold text-green-300 mb-2">Classic Mode</h2>
+              <p className="text-gray-300 mb-4">Traditional survival experience</p>
+              <ul className="text-sm text-gray-400 space-y-2 text-left">
+                <li>✓ Choose difficulty</li>
+                <li>✓ Day/Night selection</li>
+                <li>✓ Balanced gameplay</li>
+                <li>✓ No API key needed</li>
+              </ul>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // API Key Input Screen (AI Mode)
+  if (showAPIKeyInput) {
+    return <APIKeyInput onSubmit={handleAPIKeySubmit} onSkipAI={handleSkipAI} />;
+  }
+
+  // AI Prompt Menu
+  if (showMenu) {
+    return (
+      <>
+        {isInitializingAI && (
+          <div className="fixed inset-0 bg-black bg-opacity-95 flex items-center justify-center z-50">
+            <div className="text-center">
+              <div className="text-6xl mb-4 animate-pulse">🤖</div>
+              <h2 className="text-3xl font-bold text-purple-400 mb-2">Initializing AI Game Director...</h2>
+              <p className="text-gray-400">Analyzing your gameplay preferences</p>
+              <div className="mt-6">
+                <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-purple-500 border-t-transparent"></div>
+              </div>
+            </div>
+          </div>
+        )}
+        {aiError && (
+          <div className="fixed top-6 left-1/2 transform -translate-x-1/2 bg-red-900 border-2 border-red-500 text-white px-6 py-4 rounded-xl z-50 max-w-md">
+            <p className="font-bold mb-1">⚠️ AI Initialization Failed</p>
+            <p className="text-sm">{aiError}</p>
+            <button
+              onClick={() => {
+                setAiError('');
+                setShowMenu(false);
+                setShowAPIKeyInput(true);
+              }}
+              className="mt-3 bg-red-700 hover:bg-red-600 px-4 py-2 rounded-lg text-sm transition-colors"
+            >
+              Try Again
+            </button>
+          </div>
+        )}
+        <MainMenu onStartGame={handleAIGameStart} t={t} />
+      </>
+    );
+  }
+
+  // Classic Mode Menu
+  if (showClassicMenu) {
+    return <ClassicMenu onStartGame={handleClassicGameStart} onBack={() => { setShowClassicMenu(false); setGameMode('none'); }} t={t} />;
   }
 
   return (

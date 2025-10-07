@@ -2,14 +2,13 @@ import { useState } from 'react';
 import SettingsMenu from './SettingsMenu';
 
 interface MainMenuProps {
-  onStartGame: (difficulty: 'easy' | 'medium' | 'hard', timeOfDay: 'day' | 'night') => void;
+  onStartGame: (prompt: string) => void;
   t: (key: string) => string;
 }
 
 const MainMenu = ({ onStartGame, t }: MainMenuProps) => {
   const [showSettings, setShowSettings] = useState(false);
-  const [selectedDifficulty, setSelectedDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
-  const [selectedTimeOfDay, setSelectedTimeOfDay] = useState<'day' | 'night'>('day');
+  const [gameplayPrompt, setGameplayPrompt] = useState('');
   return (
     <div className="relative w-full h-screen overflow-y-auto overflow-x-hidden bg-gradient-to-b from-gray-900 via-green-900 to-black flex items-center justify-center">
       {/* Animated Background */}
@@ -21,87 +20,77 @@ const MainMenu = ({ onStartGame, t }: MainMenuProps) => {
       <div className="text-center z-10 space-y-4 md:space-y-6 py-8 px-4 max-w-4xl mx-auto">
         {/* Title */}
         <div style={{ animation: 'fadeIn 1s ease-out' }}>
-          <h1 className="text-4xl md:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-400 via-emerald-500 to-green-600 mb-2 tracking-wider drop-shadow-2xl">
-            {t('gameTitle')}
+          <h1 className="text-4xl md:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-500 to-purple-600 mb-2 tracking-wider drop-shadow-2xl">
+            {t('gameTitle')} 🤖 AI
           </h1>
-          <p className="text-gray-400 text-base md:text-lg font-light tracking-wide">Survive the Nightmare</p>
+          <p className="text-gray-400 text-base md:text-lg font-light tracking-wide">AI-Powered Adaptive Gameplay</p>
         </div>
 
-        {/* Game Mode Info */}
-        <div className="bg-black bg-opacity-60 backdrop-blur-md p-4 md:p-5 rounded-2xl border border-green-500 max-w-md mx-auto" style={{ animation: 'scaleIn 0.8s ease-out 0.3s both' }}>
-          <p className="text-green-300 text-lg md:text-xl mb-1">♾️ ENDLESS SURVIVAL</p>
-          <p className="text-white text-base md:text-lg">Survive as long as you can</p>
-          <p className="text-gray-400 text-xs md:text-sm mt-1">Face infinite waves of enemies</p>
-          <p className="text-yellow-400 text-xs md:text-sm mt-1">Unlock weapons by earning score!</p>
-        </div>
-
-        {/* Difficulty Selection */}
-        <div className="bg-black bg-opacity-60 backdrop-blur-md p-4 md:p-5 rounded-2xl border border-purple-500 max-w-lg mx-auto" style={{ animation: 'scaleIn 0.8s ease-out 0.4s both' }}>
-          <p className="text-purple-300 text-base md:text-lg mb-3">⚔️ SELECT DIFFICULTY</p>
-          <div className="grid grid-cols-3 gap-2 md:gap-3">
-            <button
-              onClick={() => setSelectedDifficulty('easy')}
-              className={`py-2 md:py-3 px-2 md:px-4 rounded-xl text-sm md:text-base font-bold transition-all transform hover:scale-105 ${
-                selectedDifficulty === 'easy'
-                  ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white border-2 border-green-400 scale-105'
-                  : 'bg-gray-800 text-gray-400 border-2 border-gray-600 hover:border-green-400'
-              }`}
-            >
-              😊 EASY
-              <div className="text-[10px] md:text-xs mt-1">Challenging</div>
-            </button>
-            <button
-              onClick={() => setSelectedDifficulty('medium')}
-              className={`py-2 md:py-3 px-2 md:px-4 rounded-xl text-sm md:text-base font-bold transition-all transform hover:scale-105 ${
-                selectedDifficulty === 'medium'
-                  ? 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white border-2 border-yellow-400 scale-105'
-                  : 'bg-gray-800 text-gray-400 border-2 border-gray-600 hover:border-yellow-400'
-              }`}
-            >
-              😐 MEDIUM
-              <div className="text-[10px] md:text-xs mt-1">Brutal</div>
-            </button>
-            <button
-              onClick={() => setSelectedDifficulty('hard')}
-              className={`py-2 md:py-3 px-2 md:px-4 rounded-xl text-sm md:text-base font-bold transition-all transform hover:scale-105 ${
-                selectedDifficulty === 'hard'
-                  ? 'bg-gradient-to-r from-red-600 to-rose-600 text-white border-2 border-red-400 scale-105'
-                  : 'bg-gray-800 text-gray-400 border-2 border-gray-600 hover:border-red-400'
-              }`}
-            >
-              😈 HARD
-              <div className="text-[10px] md:text-xs mt-1">Nightmare</div>
-            </button>
+        {/* AI Feature Banner */}
+        <div className="bg-gradient-to-r from-purple-900 via-pink-900 to-purple-900 bg-opacity-60 backdrop-blur-md p-4 md:p-5 rounded-2xl border-2 border-purple-400 max-w-2xl mx-auto" style={{ animation: 'scaleIn 0.8s ease-out 0.3s both' }}>
+          <p className="text-purple-300 text-xl md:text-2xl mb-2 font-bold">🤖 GPT-Powered Game Director</p>
+          <p className="text-white text-sm md:text-base">Describe your ideal gameplay experience and let AI create it</p>
+          <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
+            <div className="bg-black bg-opacity-30 p-2 rounded-lg">
+              <span className="text-green-400">✓</span> Dynamic difficulty
+            </div>
+            <div className="bg-black bg-opacity-30 p-2 rounded-lg">
+              <span className="text-green-400">✓</span> Smart enemy spawns
+            </div>
+            <div className="bg-black bg-opacity-30 p-2 rounded-lg">
+              <span className="text-green-400">✓</span> Real-time adaptation
+            </div>
+            <div className="bg-black bg-opacity-30 p-2 rounded-lg">
+              <span className="text-green-400">✓</span> Personalized challenge
+            </div>
           </div>
         </div>
 
-        {/* Time of Day Selection */}
-        <div className="bg-black bg-opacity-60 backdrop-blur-md p-4 md:p-5 rounded-2xl border border-cyan-500 max-w-lg mx-auto" style={{ animation: 'scaleIn 0.8s ease-out 0.45s both' }}>
-          <p className="text-cyan-300 text-base md:text-lg mb-3">🎨 GRAPHICS OPTIONS</p>
-          <div className="grid grid-cols-2 gap-3 md:gap-4">
+        {/* Gameplay Prompt Input */}
+        <div className="bg-black bg-opacity-60 backdrop-blur-md p-6 rounded-2xl border-2 border-cyan-500 max-w-2xl mx-auto" style={{ animation: 'scaleIn 0.8s ease-out 0.4s both' }}>
+          <p className="text-cyan-300 text-lg md:text-xl mb-3 font-semibold">💭 Describe Your Perfect Game</p>
+          <textarea
+            value={gameplayPrompt}
+            onChange={(e) => setGameplayPrompt(e.target.value)}
+            placeholder="Example: I want a challenging but fair experience with mostly fast enemies and occasional tank bosses. Make it intense and exciting, with night atmosphere for extra tension..."
+            className="w-full bg-gray-900 text-white px-4 py-3 rounded-xl border-2 border-gray-700 focus:border-cyan-500 focus:outline-none transition-all resize-none h-32"
+          />
+          <div className="mt-3 text-xs text-gray-400 space-y-1">
+            <p>💡 <strong>Tips:</strong></p>
+            <p>• Specify difficulty: "easy/relaxing", "challenging", "brutal/nightmare"</p>
+            <p>• Choose atmosphere: "day" or "night"</p>
+            <p>• Define enemies: "lots of weak enemies" or "fewer but stronger foes"</p>
+            <p>• Set pace: "slow and tactical" or "fast-paced chaos"</p>
+          </div>
+        </div>
+
+        {/* Example Prompts */}
+        <div className="bg-black bg-opacity-60 backdrop-blur-md p-4 rounded-2xl border border-yellow-500 max-w-2xl mx-auto" style={{ animation: 'scaleIn 0.8s ease-out 0.45s both' }}>
+          <p className="text-yellow-300 text-sm mb-2">📝 Quick Prompts:</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
             <button
-              onClick={() => setSelectedTimeOfDay('day')}
-              className={`py-3 md:py-4 px-3 md:px-6 rounded-xl text-sm md:text-base font-bold transition-all transform hover:scale-105 ${
-                selectedTimeOfDay === 'day'
-                  ? 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white border-2 border-yellow-300 scale-105'
-                  : 'bg-gray-800 text-gray-400 border-2 border-gray-600 hover:border-yellow-300'
-              }`}
+              onClick={() => setGameplayPrompt("I want a relaxing daytime experience with moderate enemy waves. Nothing too intense, just want to enjoy the scenery and shooting.")}
+              className="bg-gray-800 hover:bg-gray-700 text-left p-2 rounded-lg transition-colors border border-gray-600"
             >
-              ☀️ DAY MODE
-              <div className="text-[10px] md:text-xs mt-1">Golden Hour</div>
-              <div className="text-[9px] md:text-[10px] text-yellow-200 mt-0.5">Volumetric Lighting</div>
+              <span className="text-green-400">🌿</span> Chill Mode
             </button>
             <button
-              onClick={() => setSelectedTimeOfDay('night')}
-              className={`py-3 md:py-4 px-3 md:px-6 rounded-xl text-sm md:text-base font-bold transition-all transform hover:scale-105 ${
-                selectedTimeOfDay === 'night'
-                  ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white border-2 border-indigo-400 scale-105'
-                  : 'bg-gray-800 text-gray-400 border-2 border-gray-600 hover:border-indigo-400'
-              }`}
+              onClick={() => setGameplayPrompt("Give me the most brutal nightmare difficulty possible. Constant waves of fast and tank enemies. I want to barely survive. Night time with maximum intensity.")}
+              className="bg-gray-800 hover:bg-gray-700 text-left p-2 rounded-lg transition-colors border border-gray-600"
             >
-              🌙 NIGHT MODE
-              <div className="text-[10px] md:text-xs mt-1">Neon Dreams</div>
-              <div className="text-[9px] md:text-[10px] text-purple-200 mt-0.5">Moonlight Rays</div>
+              <span className="text-red-400">💀</span> Nightmare Mode
+            </button>
+            <button
+              onClick={() => setGameplayPrompt("Balanced challenge with a mix of all enemy types. Start moderate and gradually increase difficulty as I progress. Day time with good visibility.")}
+              className="bg-gray-800 hover:bg-gray-700 text-left p-2 rounded-lg transition-colors border border-gray-600"
+            >
+              <span className="text-blue-400">⚖️</span> Balanced Experience
+            </button>
+            <button
+              onClick={() => setGameplayPrompt("I want to face lots of weak enemies that I can mow down easily and feel powerful. Occasional tough boss to keep it interesting. Fast paced action.")}
+              className="bg-gray-800 hover:bg-gray-700 text-left p-2 rounded-lg transition-colors border border-gray-600"
+            >
+              <span className="text-yellow-400">⚡</span> Power Fantasy
             </button>
           </div>
         </div>
@@ -109,10 +98,15 @@ const MainMenu = ({ onStartGame, t }: MainMenuProps) => {
         {/* Buttons */}
         <div className="flex gap-3 md:gap-4 justify-center" style={{ animation: 'scaleIn 0.8s ease-out 0.5s both' }}>
           <button
-            onClick={() => onStartGame(selectedDifficulty, selectedTimeOfDay)}
-            className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold py-4 md:py-5 px-8 md:px-12 rounded-2xl text-xl md:text-2xl transition-all transform hover:scale-110 active:scale-95 cursor-pointer shadow-2xl border-2 border-green-400"
+            onClick={() => gameplayPrompt.trim() && onStartGame(gameplayPrompt)}
+            disabled={!gameplayPrompt.trim()}
+            className={`font-bold py-4 md:py-5 px-8 md:px-12 rounded-2xl text-xl md:text-2xl transition-all transform shadow-2xl border-2 ${
+              gameplayPrompt.trim()
+                ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white border-purple-400 hover:scale-110 active:scale-95 cursor-pointer'
+                : 'bg-gray-700 text-gray-500 border-gray-600 cursor-not-allowed opacity-50'
+            }`}
           >
-            ▶️ {t('startGame')}
+            🚀 {t('startGame')}
           </button>
           <button
             onClick={() => setShowSettings(true)}
@@ -124,7 +118,7 @@ const MainMenu = ({ onStartGame, t }: MainMenuProps) => {
 
         {/* Version Info */}
         <p className="text-gray-600 text-xs md:text-sm mt-4" style={{ animation: 'fadeIn 1.5s ease-out 1s both' }}>
-          Version 3.0 - AAA Edition | Advanced Graphics
+          Version 4.0 - AI Edition | GPT-Powered Gameplay
         </p>
       </div>
 

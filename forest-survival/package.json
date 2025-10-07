@@ -13,6 +13,7 @@
     "@types/three": "^0.180.0",
     "@vercel/analytics": "^1.5.0",
     "cannon-es": "^0.20.0",
+    "openai": "^6.2.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "three": "^0.180.0"

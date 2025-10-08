@@ -49,20 +49,29 @@ export class GunModel {
   }
 
   private createPistol() {
-    // Slide (top part)
-    const slideGeometry = new THREE.BoxGeometry(0.8, 0.6, 4.5);
+    // Slide (top part) - more detailed
+    const slideGeometry = new THREE.BoxGeometry(1, 0.7, 4.5);
     const slideMaterial = new THREE.MeshStandardMaterial({
-      color: 0x1a1a1a,
+      color: 0x2a2a2a,
       metalness: 0.9,
-      roughness: 0.15,
-      flatShading: true
+      roughness: 0.2,
+      flatShading: false
     });
     const slide = new THREE.Mesh(slideGeometry, slideMaterial);
     slide.position.set(0, 0.8, -1.5);
+    slide.castShadow = true;
     this.group.add(slide);
 
-    // Barrel extending from slide
-    const barrelGeometry = new THREE.CylinderGeometry(0.25, 0.25, 1, 8);
+    // Slide serrations
+    for (let i = 0; i < 8; i++) {
+      const serrGeometry = new THREE.BoxGeometry(0.15, 0.1, 0.3);
+      const serr = new THREE.Mesh(serrGeometry, slideMaterial);
+      serr.position.set(0, 1.2, -0.5 - i * 0.4);
+      this.group.add(serr);
+    }
+
+    // Barrel extending from slide - more realistic
+    const barrelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 1.5, 12);
     const barrelMaterial = new THREE.MeshStandardMaterial({
       color: 0x0a0a0a,
       metalness: 0.95,
@@ -70,41 +79,71 @@ export class GunModel {
     });
     const barrel = new THREE.Mesh(barrelGeometry, barrelMaterial);
     barrel.rotation.x = Math.PI / 2;
-    barrel.position.set(0, 0.8, -4.2);
+    barrel.position.set(0, 0.8, -4.5);
+    barrel.castShadow = true;
     this.group.add(barrel);
 
-    // Frame/Grip
-    const gripGeometry = new THREE.BoxGeometry(1, 2.2, 1.2);
+    // Muzzle opening
+    const muzzleGeometry = new THREE.CylinderGeometry(0.35, 0.3, 0.3, 12);
+    const muzzle = new THREE.Mesh(muzzleGeometry, barrelMaterial);
+    muzzle.rotation.x = Math.PI / 2;
+    muzzle.position.set(0, 0.8, -5.2);
+    this.group.add(muzzle);
+
+    // Frame/Grip - improved shape
+    const gripGeometry = new THREE.BoxGeometry(1.1, 2.4, 1.3);
     const gripMaterial = new THREE.MeshStandardMaterial({
-      color: 0x2a2a2a,
-      metalness: 0.3,
+      color: 0x1a1a1a,
+      metalness: 0.4,
       roughness: 0.7,
-      flatShading: true
+      flatShading: false
     });
     const grip = new THREE.Mesh(gripGeometry, gripMaterial);
     grip.position.set(0, -0.5, 0.3);
+    grip.castShadow = true;
     this.group.add(grip);
 
-    // Magazine
-    const magGeometry = new THREE.BoxGeometry(0.7, 1.8, 0.8);
+    // Grip texture lines
+    for (let i = 0; i < 5; i++) {
+      const lineGeometry = new THREE.BoxGeometry(1.15, 0.1, 1.35);
+      const line = new THREE.Mesh(lineGeometry, new THREE.MeshStandardMaterial({ color: 0x0a0a0a, metalness: 0.3, roughness: 0.9 }));
+      line.position.set(0, -0.8 - i * 0.3, 0.3);
+      this.group.add(line);
+    }
+
+    // Magazine - more realistic
+    const magGeometry = new THREE.BoxGeometry(0.8, 2, 0.9);
     const magMaterial = new THREE.MeshStandardMaterial({
-      color: 0x3a3a3a,
-      metalness: 0.5,
+      color: 0x1a1a1a,
+      metalness: 0.6,
       roughness: 0.4
     });
     this.magazine = new THREE.Mesh(magGeometry, magMaterial);
     this.magazine.position.set(0, -1, 0.3);
+    this.magazine.castShadow = true;
     this.group.add(this.magazine);
 
-    // Trigger
-    const triggerGeometry = new THREE.BoxGeometry(0.15, 0.5, 0.3);
-    const triggerMaterial = new THREE.MeshStandardMaterial({
+    // Trigger guard
+    const guardGeometry = new THREE.TorusGeometry(0.5, 0.08, 6, 8, Math.PI);
+    const guardMaterial = new THREE.MeshStandardMaterial({
       color: 0x1a1a1a,
       metalness: 0.8,
+      roughness: 0.3
+    });
+    const guard = new THREE.Mesh(guardGeometry, guardMaterial);
+    guard.rotation.x = Math.PI / 2;
+    guard.position.set(0, -0.3, -0.3);
+    this.group.add(guard);
+
+    // Trigger
+    const triggerGeometry = new THREE.BoxGeometry(0.2, 0.6, 0.15);
+    const triggerMaterial = new THREE.MeshStandardMaterial({
+      color: 0x0a0a0a,
+      metalness: 0.9,
       roughness: 0.2
     });
     const trigger = new THREE.Mesh(triggerGeometry, triggerMaterial);
-    trigger.position.set(0, -0.3, -0.5);
+    trigger.position.set(0, -0.4, -0.5);
     this.group.add(trigger);
 
     // Front sight
@@ -125,20 +164,33 @@ export class GunModel {
   }
 
   private createRifle() {
-    // Upper receiver
-    const upperGeometry = new THREE.BoxGeometry(1.2, 0.8, 5);
+    // Upper receiver - more detailed
+    const upperGeometry = new THREE.BoxGeometry(1.3, 0.9, 5.5);
     const upperMaterial = new THREE.MeshStandardMaterial({
-      color: 0x1a1a1a,
+      color: 0x2a2a2a,
       metalness: 0.85,
-      roughness: 0.2,
-      flatShading: true
+      roughness: 0.25,
+      flatShading: false
     });
     const upper = new THREE.Mesh(upperGeometry, upperMaterial);
     upper.position.set(0, 0.5, -1.5);
+    upper.castShadow = true;
     this.group.add(upper);
 
-    // Barrel with heat shield
-    const barrelGeometry = new THREE.CylinderGeometry(0.2, 0.22, 6, 8);
+    // Ejection port
+    const portGeometry = new THREE.BoxGeometry(0.5, 0.3, 1);
+    const port = new THREE.Mesh(portGeometry, new THREE.MeshStandardMaterial({ color: 0x0a0a0a, metalness: 0.9, roughness: 0.1 }));
+    port.position.set(0.7, 0.6, -0.5);
+    this.group.add(port);
+
+    // Charging handle
+    const handleGeometry = new THREE.BoxGeometry(0.3, 0.2, 0.8);
+    const handle = new THREE.Mesh(handleGeometry, upperMaterial);
+    handle.position.set(0, 1, 0.5);
+    this.group.add(handle);
+
+    // Barrel - more realistic with segments
+    const barrelGeometry = new THREE.CylinderGeometry(0.25, 0.27, 7, 16);
     const barrelMaterial = new THREE.MeshStandardMaterial({
       color: 0x0a0a0a,
       metalness: 0.95,
@@ -146,8 +198,16 @@ export class GunModel {
     });
     const barrel = new THREE.Mesh(barrelGeometry, barrelMaterial);
     barrel.rotation.x = Math.PI / 2;
-    barrel.position.set(0, 0.3, -4.5);
+    barrel.position.set(0, 0.3, -5);
+    barrel.castShadow = true;
     this.group.add(barrel);
+
+    // Flash hider
+    const flashHiderGeometry = new THREE.CylinderGeometry(0.35, 0.3, 0.6, 6);
+    const flashHider = new THREE.Mesh(flashHiderGeometry, barrelMaterial);
+    flashHider.rotation.x = Math.PI / 2;
+    flashHider.position.set(0, 0.3, -8.5);
+    this.group.add(flashHider);
 
     // Handguard
     const handguardGeometry = new THREE.BoxGeometry(1, 0.8, 3.5);
@@ -330,8 +390,8 @@ export class GunModel {
   }
 
   private createSniper() {
-    // Extra long barrel
-    const barrelGeometry = new THREE.CylinderGeometry(0.2, 0.2, 10, 8);
+    // Extra long barrel - high detail
+    const barrelGeometry = new THREE.CylinderGeometry(0.25, 0.25, 12, 20);
     const barrelMaterial = new THREE.MeshStandardMaterial({
       color: 0x0a0a0a,
       metalness: 0.95,
@@ -339,79 +399,205 @@ export class GunModel {
     });
     const barrel = new THREE.Mesh(barrelGeometry, barrelMaterial);
     barrel.rotation.x = Math.PI / 2;
-    barrel.position.z = -5;
+    barrel.position.z = -6;
+    barrel.castShadow = true;
     this.group.add(barrel);
 
-    // Body
-    const bodyGeometry = new THREE.BoxGeometry(1.5, 1.5, 3);
+    // Suppressor/Muzzle brake
+    const suppressorGeometry = new THREE.CylinderGeometry(0.4, 0.35, 2, 12);
+    const suppressor = new THREE.Mesh(suppressorGeometry, new THREE.MeshStandardMaterial({
+      color: 0x1a1a1a,
+      metalness: 0.9,
+      roughness: 0.2
+    }));
+    suppressor.rotation.x = Math.PI / 2;
+    suppressor.position.z = -12.5;
+    this.group.add(suppressor);
+
+    // Body/Receiver - military style
+    const bodyGeometry = new THREE.BoxGeometry(1.6, 1.2, 4);
     const bodyMaterial = new THREE.MeshStandardMaterial({
       color: 0x1a2a1a,
       metalness: 0.6,
-      roughness: 0.3
+      roughness: 0.4
     });
     const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
     body.position.set(0, 0, 0);
+    body.castShadow = true;
     this.group.add(body);
 
-    // Large scope
-    const scopeGeometry = new THREE.CylinderGeometry(0.4, 0.4, 3, 16);
-    const scopeMaterial = new THREE.MeshStandardMaterial({
-      color: 0x00aa00,
-      metalness: 0.8,
-      roughness: 0.2,
-      emissive: 0x00ff00,
-      emissiveIntensity: 0.3
+    // Cheek rest
+    const cheekGeometry = new THREE.BoxGeometry(1.4, 0.8, 2.5);
+    const cheek = new THREE.Mesh(cheekGeometry, bodyMaterial);
+    cheek.position.set(0, 0.5, 2.5);
+    this.group.add(cheek);
+
+    // Bipod
+    const bipodLegGeometry = new THREE.CylinderGeometry(0.08, 0.08, 2, 8);
+    const bipodMaterial = new THREE.MeshStandardMaterial({
+      color: 0x0a0a0a,
+      metalness: 0.9,
+      roughness: 0.1
     });
-    const scope = new THREE.Mesh(scopeGeometry, scopeMaterial);
-    scope.rotation.z = Math.PI / 2;
-    scope.position.set(0, 1.5, -2);
-    this.group.add(scope);
+    const leftBipod = new THREE.Mesh(bipodLegGeometry, bipodMaterial);
+    leftBipod.position.set(-0.8, -1.5, -4);
+    leftBipod.rotation.z = 0.3;
+    this.group.add(leftBipod);
+
+    const rightBipod = new THREE.Mesh(bipodLegGeometry, bipodMaterial);
+    rightBipod.position.set(0.8, -1.5, -4);
+    rightBipod.rotation.z = -0.3;
+    this.group.add(rightBipod);
+
+    // Large tactical scope - premium look
+    const scopeBodyGeometry = new THREE.CylinderGeometry(0.5, 0.5, 4, 20);
+    const scopeMaterial = new THREE.MeshStandardMaterial({
+      color: 0x0a0a0a,
+      metalness: 0.85,
+      roughness: 0.2
+    });
+    const scopeBody = new THREE.Mesh(scopeBodyGeometry, scopeMaterial);
+    scopeBody.rotation.z = Math.PI / 2;
+    scopeBody.position.set(0, 1.8, -1.5);
+    scopeBody.castShadow = true;
+    this.group.add(scopeBody);
+
+    // Scope lens (front)
+    const lensGeometry = new THREE.CylinderGeometry(0.45, 0.45, 0.2, 20);
+    const lensMaterial = new THREE.MeshStandardMaterial({
+      color: 0x003300,
+      metalness: 0.9,
+      roughness: 0.1,
+      emissive: 0x00ff00,
+      emissiveIntensity: 0.4
+    });
+    const frontLens = new THREE.Mesh(lensGeometry, lensMaterial);
+    frontLens.rotation.z = Math.PI / 2;
+    frontLens.position.set(0, 1.8, -3.6);
+    this.group.add(frontLens);
+
+    // Scope reticle glow
+    const reticleGeometry = new THREE.CircleGeometry(0.05);
+    const reticleMaterial = new THREE.MeshBasicMaterial({
+      color: 0x00ff00
+    });
+    const reticle = new THREE.Mesh(reticleGeometry, reticleMaterial);
+    reticle.position.set(0, 1.8, -3.7);
+    this.group.add(reticle);
+
+    // Scope mount rings
+    const ringGeometry = new THREE.TorusGeometry(0.55, 0.1, 8, 16);
+    const ring1 = new THREE.Mesh(ringGeometry, new THREE.MeshStandardMaterial({ color: 0x0a0a0a, metalness: 0.8, roughness: 0.3 }));
+    ring1.rotation.y = Math.PI / 2;
+    ring1.position.set(0, 1.8, -0.5);
+    this.group.add(ring1);
+
+    const ring2 = new THREE.Mesh(ringGeometry, new THREE.MeshStandardMaterial({ color: 0x0a0a0a, metalness: 0.8, roughness: 0.3 }));
+    ring2.rotation.y = Math.PI / 2;
+    ring2.position.set(0, 1.8, -2.5);
+    this.group.add(ring2);
   }
 
   private createMinigun() {
-    // Multiple barrels
+    // Multiple rotating barrels - realistic
     const barrelGroup = new THREE.Group();
     for (let i = 0; i < 6; i++) {
       const angle = (i / 6) * Math.PI * 2;
-      const barrelGeometry = new THREE.CylinderGeometry(0.15, 0.15, 6, 6);
+      const barrelGeometry = new THREE.CylinderGeometry(0.18, 0.18, 8, 12);
       const barrelMaterial = new THREE.MeshStandardMaterial({
-        color: 0x2a2a2a,
-        metalness: 0.9,
+        color: 0x1a1a1a,
+        metalness: 0.95,
         roughness: 0.1
       });
       const barrel = new THREE.Mesh(barrelGeometry, barrelMaterial);
       barrel.rotation.x = Math.PI / 2;
-      barrel.position.x = Math.cos(angle) * 0.5;
-      barrel.position.y = Math.sin(angle) * 0.5;
-      barrel.position.z = -3;
+      barrel.position.x = Math.cos(angle) * 0.6;
+      barrel.position.y = Math.sin(angle) * 0.6;
+      barrel.position.z = -4;
+      barrel.castShadow = true;
       barrelGroup.add(barrel);
+
+      // Barrel cooling fins
+      const finGeometry = new THREE.BoxGeometry(0.05, 0.3, 2);
+      const fin = new THREE.Mesh(finGeometry, barrelMaterial);
+      fin.position.x = Math.cos(angle) * 0.75;
+      fin.position.y = Math.sin(angle) * 0.75;
+      fin.position.z = -4;
+      barrelGroup.add(fin);
     }
     this.group.add(barrelGroup);
 
-    // Central hub
-    const hubGeometry = new THREE.CylinderGeometry(0.6, 0.6, 1, 16);
+    // Central rotating hub - heavy duty
+    const hubGeometry = new THREE.CylinderGeometry(0.7, 0.7, 1.2, 20);
     const hubMaterial = new THREE.MeshStandardMaterial({
-      color: 0xff00ff,
-      metalness: 0.8,
-      roughness: 0.2,
-      emissive: 0xff00ff,
-      emissiveIntensity: 0.3
+      color: 0x2a2a2a,
+      metalness: 0.9,
+      roughness: 0.2
     });
     const hub = new THREE.Mesh(hubGeometry, hubMaterial);
     hub.rotation.x = Math.PI / 2;
-    hub.position.z = -3;
+    hub.position.z = -4;
+    hub.castShadow = true;
     this.group.add(hub);
 
-    // Ammo box
-    const boxGeometry = new THREE.BoxGeometry(2, 2, 2);
+    // Motor housing
+    const motorGeometry = new THREE.CylinderGeometry(0.8, 1, 2.5, 16);
+    const motorMaterial = new THREE.MeshStandardMaterial({
+      color: 0xff00ff,
+      metalness: 0.8,
+      roughness: 0.3,
+      emissive: 0xff00ff,
+      emissiveIntensity: 0.4
+    });
+    const motor = new THREE.Mesh(motorGeometry, motorMaterial);
+    motor.rotation.x = Math.PI / 2;
+    motor.position.z = -1;
+    motor.castShadow = true;
+    this.group.add(motor);
+
+    // Ammo feed system
+    const feedGeometry = new THREE.BoxGeometry(1.2, 1.5, 1.5);
+    const feed = new THREE.Mesh(feedGeometry, new THREE.MeshStandardMaterial({
+      color: 0x2a2a2a,
+      metalness: 0.7,
+      roughness: 0.4
+    }));
+    feed.position.set(0, 0.8, 1);
+    this.group.add(feed);
+
+    // Large ammo box
+    const boxGeometry = new THREE.BoxGeometry(2.5, 2.5, 2.5);
     const boxMaterial = new THREE.MeshStandardMaterial({
       color: 0x3a3a3a,
-      metalness: 0.5,
+      metalness: 0.6,
       roughness: 0.5
     });
     const box = new THREE.Mesh(boxGeometry, boxMaterial);
-    box.position.set(0, -0.5, 1.5);
+    box.position.set(0, -0.5, 2);
+    box.castShadow = true;
     this.group.add(box);
+
+    // Ammo belt
+    const beltGeometry = new THREE.TorusGeometry(0.4, 0.1, 8, 16, Math.PI);
+    const beltMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffaa00,
+      metalness: 0.8,
+      roughness: 0.3
+    });
+    const belt = new THREE.Mesh(beltGeometry, beltMaterial);
+    belt.rotation.x = Math.PI / 2;
+    belt.position.set(0, 0.5, 0.5);
+    this.group.add(belt);
+
+    // Grip handle
+    const handleGeometry = new THREE.BoxGeometry(1.2, 2, 1.2);
+    const handle = new THREE.Mesh(handleGeometry, new THREE.MeshStandardMaterial({
+      color: 0x1a1a1a,
+      metalness: 0.4,
+      roughness: 0.7
+    }));
+    handle.position.set(0, -1, 0.5);
+    this.group.add(handle);
   }
 
   private createLauncher() {

@@ -652,6 +652,7 @@ const ForestSurvivalGame = () => {
     let canShoot = true;
     let isReloading = false;
     let unlockedWeapons = ['pistol'];
+    let isAiming = false;
 
     // Check and unlock weapons based on score
     const checkWeaponUnlocks = () => {
@@ -812,7 +813,16 @@ const ForestSurvivalGame = () => {
         dead: false,
         type,
         damage: enemyDamage * diffSettings.damageMult,
-        scoreValue: enemyScore
+        scoreValue: enemyScore,
+        // Animation state
+        walkTime: Math.random() * Math.PI * 2, // Random start for variation
+        damageFlashTime: 0,
+        deathTime: 0,
+        leftLeg,
+        rightLeg,
+        leftArm,
+        rightArm,
+        torso
       };
     };
 
@@ -1083,7 +1093,13 @@ const ForestSurvivalGame = () => {
 
     const onContextMenu = (e: MouseEvent) => {
       e.preventDefault();
-      // Right click to lock/unlock pointer
+      // Right click for aiming (if weapon supports it) or pointer lock
+      const weapon = WEAPONS[currentWeapon];
+      if (weapon.canAim && document.pointerLockElement === renderer.domElement) {
+        // Don't unlock - this is for aiming
+        return;
+      }
+
       if (document.pointerLockElement === renderer.domElement) {
         document.exitPointerLock();
       } else if (!isGameOver && !paused) {
@@ -1118,9 +1134,11 @@ const ForestSurvivalGame = () => {
           const direction = new THREE.Vector3();
           camera.getWorldDirection(direction);
 
-          direction.x += (Math.random() - 0.5) * weapon.spread;
-          direction.y += (Math.random() - 0.5) * weapon.spread;
-          direction.z += (Math.random() - 0.5) * weapon.spread;
+          // Reduce spread when aiming
+          const spreadMultiplier = (isAiming && weapon.canAim) ? 0.2 : 1.0;
+          direction.x += (Math.random() - 0.5) * weapon.spread * spreadMultiplier;
+          direction.y += (Math.random() - 0.5) * weapon.spread * spreadMultiplier;
+          direction.z += (Math.random() - 0.5) * weapon.spread * spreadMultiplier;
           direction.normalize();
 
           const bulletGeometry = new THREE.SphereGeometry(0.1);
@@ -1156,6 +1174,15 @@ const ForestSurvivalGame = () => {
     let autoFireInterval: number | null = null;
 
     const onMouseDown = (e: MouseEvent) => {
+      // Right mouse button for aiming
+      if (e.button === 2 && !paused && !isGameOver) {
+        const weapon = WEAPONS[currentWeapon];
+        if (weapon.canAim && document.pointerLockElement === renderer.domElement) {
+          isAiming = true;
+        }
+        return;
+      }
+
       if (e.button === 0 && !paused && !isGameOver) {
         mouseDown = true;
         shoot();
@@ -1173,6 +1200,12 @@ const ForestSurvivalGame = () => {
     };
 
     const onMouseUp = (e: MouseEvent) => {
+      // Right mouse button - stop aiming
+      if (e.button === 2) {
+        isAiming = false;
+        return;
+      }
+
       if (e.button === 0) {
         mouseDown = false;
 
@@ -1291,12 +1324,33 @@ const ForestSurvivalGame = () => {
       // Update gun animations
       gunModel.updateRecoil(delta);
 
+      // Aiming zoom effect
+      if (isAiming && WEAPONS[currentWeapon].canAim) {
+        // Zoom in when aiming
+        camera.fov = THREE.MathUtils.lerp(camera.fov, 50, delta * 8);
+        // Center gun more when aiming
+        gunModel.group.position.x = THREE.MathUtils.lerp(gunModel.group.position.x, 0, delta * 8);
+        gunModel.group.position.y = THREE.MathUtils.lerp(gunModel.group.position.y, -0.2, delta * 8);
+      } else {
+        // Zoom out when not aiming
+        camera.fov = THREE.MathUtils.lerp(camera.fov, 75, delta * 8);
+        // Reset gun position
+        gunModel.group.position.x = THREE.MathUtils.lerp(gunModel.group.position.x, 0.3, delta * 8);
+        gunModel.group.position.y = THREE.MathUtils.lerp(gunModel.group.position.y, -0.3, delta * 8);
+      }
+      camera.updateProjectionMatrix();
+
       // Removed player light update for performance
 
-      // Player movement
+      // Player movement with weight-based speed
       const isMoving = keys['KeyW'] || keys['KeyS'] || keys['KeyA'] || keys['KeyD'];
       const isRunning = keys['ShiftLeft'] || keys['ShiftRight'];
-      const currentSpeed = isRunning ? moveSpeed * sprintMultiplier : moveSpeed;
+
+      // Calculate speed based on weapon weight
+      const weaponWeight = WEAPONS[currentWeapon].weight;
+      const weightSpeedMultiplier = 1.0 / weaponWeight; // Heavier weapons = slower movement
+      const baseSpeed = moveSpeed * weightSpeedMultiplier;
+      const currentSpeed = isRunning ? baseSpeed * sprintMultiplier : baseSpeed;
 
       // Update gun sway and bobbing based on movement
       gunModel.updateIdleSway(delta);
@@ -1462,12 +1516,15 @@ const ForestSurvivalGame = () => {
             scene.remove(bullet.mesh);
             bullets.splice(i, 1);
 
+            // Trigger damage flash animation
+            enemy.damageFlashTime = 0.3;
+
             createParticles(enemy.mesh.position, 0xff0000, 3); // Reduced particles
             soundManager.play('hit', 0.4);
 
             if (enemy.health <= 0) {
               enemy.dead = true;
-              scene.remove(enemy.mesh);
+              enemy.deathTime = 1.0; // Death animation duration
               score += enemy.scoreValue;
               enemiesKilled++;
               soundManager.play('enemyDeath', 0.6);
@@ -1484,8 +1541,7 @@ const ForestSurvivalGame = () => {
 
               createParticles(enemy.mesh.position, 0x00ff00, 8); // Reduced particles
 
-              // Remove enemy AFTER all operations
-              enemies.splice(j, 1);
+              // Don't remove immediately - death animation will handle it
 
               updateGameState();
 
@@ -1511,6 +1567,48 @@ const ForestSurvivalGame = () => {
       // Update enemies
       for (let i = enemies.length - 1; i >= 0; i--) {
         const enemy = enemies[i];
+
+        // Death animation
+        if (enemy.dead && enemy.deathTime > 0) {
+          enemy.deathTime -= delta;
+          const deathProgress = 1.0 - (enemy.deathTime / 1.0);
+
+          // Ragdoll-like fall
+          enemy.mesh.rotation.x = deathProgress * Math.PI / 2;
+          enemy.mesh.position.y = 1.5 - deathProgress * 1.5;
+
+          // Limbs spread out
+          if (enemy.leftArm) {
+            enemy.leftArm.rotation.z = deathProgress * Math.PI / 3;
+            enemy.leftArm.rotation.x = deathProgress * Math.PI / 4;
+          }
+          if (enemy.rightArm) {
+            enemy.rightArm.rotation.z = -deathProgress * Math.PI / 3;
+            enemy.rightArm.rotation.x = deathProgress * Math.PI / 4;
+          }
+          if (enemy.leftLeg) {
+            enemy.leftLeg.rotation.x = deathProgress * Math.PI / 6;
+          }
+          if (enemy.rightLeg) {
+            enemy.rightLeg.rotation.x = -deathProgress * Math.PI / 6;
+          }
+
+          // Fade out
+          enemy.mesh.traverse((child) => {
+            if (child instanceof THREE.Mesh && child.material instanceof THREE.Material) {
+              child.material.opacity = 1.0 - deathProgress;
+              child.material.transparent = true;
+            }
+          });
+
+          // Remove after animation completes
+          if (enemy.deathTime <= 0) {
+            scene.remove(enemy.mesh);
+            enemies.splice(i, 1);
+          }
+          continue;
+        }
+
         if (enemy.dead) continue;
 
         // Enemy health regeneration on higher difficulties
@@ -1518,17 +1616,52 @@ const ForestSurvivalGame = () => {
           enemy.health = Math.min(enemy.maxHealth, enemy.health + diffSettings.regenRate * delta * 10);
         }
 
-        // Simple breathing animation
-        enemy.mesh.position.y += Math.sin(Date.now() * 0.003 + i) * 0.01;
-
         const dx = camera.position.x - enemy.mesh.position.x;
         const dz = camera.position.z - enemy.mesh.position.z;
         const distance = Math.sqrt(dx * dx + dz * dz);
 
-        if (distance > 2.5) {
+        // Walking animation
+        const isMoving = distance > 2.5;
+        if (isMoving) {
+          enemy.walkTime += delta * 8; // Walking speed multiplier
+
+          // Leg animation - alternating swing
+          if (enemy.leftLeg && enemy.rightLeg) {
+            enemy.leftLeg.rotation.x = Math.sin(enemy.walkTime) * 0.5;
+            enemy.rightLeg.rotation.x = Math.sin(enemy.walkTime + Math.PI) * 0.5;
+          }
+
+          // Arm animation - opposite to legs
+          if (enemy.leftArm && enemy.rightArm) {
+            enemy.leftArm.rotation.x = Math.sin(enemy.walkTime + Math.PI) * 0.3;
+            enemy.rightArm.rotation.x = Math.sin(enemy.walkTime) * 0.3;
+          }
+
+          // Torso bobbing
+          if (enemy.torso) {
+            enemy.torso.position.y = 0.2 + Math.sin(enemy.walkTime * 2) * 0.05;
+          }
+
           enemy.mesh.position.x += (dx / distance) * enemy.speed;
           enemy.mesh.position.z += (dz / distance) * enemy.speed;
           enemy.mesh.lookAt(camera.position.x, enemy.mesh.position.y, camera.position.z);
+        } else {
+          // Reset to idle pose
+          if (enemy.leftLeg) enemy.leftLeg.rotation.x *= 0.9;
+          if (enemy.rightLeg) enemy.rightLeg.rotation.x *= 0.9;
+          if (enemy.leftArm) enemy.leftArm.rotation.x *= 0.9;
+          if (enemy.rightArm) enemy.rightArm.rotation.x *= 0.9;
+        }
+
+        // Damage flash animation
+        if (enemy.damageFlashTime > 0) {
+          enemy.damageFlashTime -= delta;
+          const flashIntensity = Math.max(0, enemy.damageFlashTime);
+
+          // Flash red when damaged
+          if (enemy.torso && enemy.torso.material instanceof THREE.MeshLambertMaterial) {
+            enemy.torso.material.emissiveIntensity = 0.2 + flashIntensity * 2;
+          }
         }
 
         if (checkCollision(camera.position, enemy.mesh.position, 2.5)) {

@@ -11,6 +11,8 @@ export interface Weapon {
   spread: number;
   unlockScore: number;
   autoFire?: boolean; // Whether weapon fires automatically when mouse held
+  weight: number; // Weight affects movement speed
+  canAim?: boolean; // Whether weapon supports right-click aiming
 }
 
 export const WEAPONS: Record<string, Weapon> = {
@@ -23,7 +25,9 @@ export const WEAPONS: Record<string, Weapon> = {
     bulletSpeed: 2,
     bulletColor: 0xffff00,
     spread: 0.02,
-    unlockScore: 0
+    unlockScore: 0,
+    weight: 1.0, // Light weapon - full speed
+    canAim: false
   },
   rifle: {
     name: '🔪 Rifle',
@@ -34,7 +38,9 @@ export const WEAPONS: Record<string, Weapon> = {
     bulletSpeed: 3,
     bulletColor: 0xff6600,
     spread: 0.01,
-    unlockScore: 100
+    unlockScore: 100,
+    weight: 1.5, // Medium weight
+    canAim: true // Rifle can aim
   },
   shotgun: {
     name: '💥 Shotgun',
@@ -45,7 +51,9 @@ export const WEAPONS: Record<string, Weapon> = {
     bulletSpeed: 1.5,
     bulletColor: 0xff0000,
     spread: 0.15,
-    unlockScore: 200
+    unlockScore: 200,
+    weight: 1.7, // Heavy weapon
+    canAim: false
   },
   smg: {
     name: '🔫 SMG',
@@ -57,7 +65,9 @@ export const WEAPONS: Record<string, Weapon> = {
     bulletColor: 0x00ffff,
     spread: 0.03,
     unlockScore: 300,
-    autoFire: true
+    autoFire: true,
+    weight: 1.2, // Light-medium weight
+    canAim: false
   },
   sniper: {
     name: '🎯 Sniper',
@@ -69,7 +79,9 @@ export const WEAPONS: Record<string, Weapon> = {
     bulletColor: 0x00ff00,
     spread: 0.005,
     unlockScore: 500,
-    autoFire: false
+    autoFire: false,
+    weight: 2.0, // Heavy weapon - slower movement
+    canAim: true // Sniper can aim
   },
   minigun: {
     name: '⚡ Minigun',
@@ -81,7 +93,9 @@ export const WEAPONS: Record<string, Weapon> = {
     bulletColor: 0xff00ff,
     spread: 0.05,
     unlockScore: 800,
-    autoFire: true
+    autoFire: true,
+    weight: 3.0, // Very heavy - significantly slower
+    canAim: false
   },
   launcher: {
     name: '🚀 Launcher',
@@ -93,7 +107,9 @@ export const WEAPONS: Record<string, Weapon> = {
     bulletColor: 0xff4400,
     spread: 0.01,
     unlockScore: 1200,
-    autoFire: false
+    autoFire: false,
+    weight: 2.5, // Very heavy
+    canAim: false
   }
 };
 
@@ -106,6 +122,15 @@ export interface Enemy {
   type: 'normal' | 'fast' | 'tank' | 'boss';
   damage: number;
   scoreValue: number;
+  // Animation state
+  walkTime: number;
+  damageFlashTime: number;
+  deathTime: number;
+  leftLeg?: THREE.Mesh;
+  rightLeg?: THREE.Mesh;
+  leftArm?: THREE.Mesh;
+  rightArm?: THREE.Mesh;
+  torso?: THREE.Mesh;
 }
 
 export interface Bullet {

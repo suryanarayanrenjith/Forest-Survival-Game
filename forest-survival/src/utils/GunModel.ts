@@ -9,6 +9,9 @@ export class GunModel {
   isReloading: boolean = false;
   magazine: THREE.Mesh | null = null;
   currentWeaponType: string = 'pistol';
+  slide: THREE.Mesh | null = null;
+  bolt: THREE.Mesh | null = null;
+  ejectedMag: THREE.Mesh | null = null;
 
   constructor(type: 'pistol' | 'rifle' | 'shotgun' | 'smg' | 'sniper' | 'minigun' | 'launcher') {
     this.group = new THREE.Group();
@@ -49,66 +52,121 @@ export class GunModel {
   }
 
   private createPistol() {
-    // Slide (top part) - more detailed
-    const slideGeometry = new THREE.BoxGeometry(1, 0.7, 4.5);
-    const slideMaterial = new THREE.MeshStandardMaterial({
-      color: 0x2a2a2a,
-      metalness: 0.9,
-      roughness: 0.2,
+    // Create high-quality materials with textures
+    const metalMaterial = new THREE.MeshStandardMaterial({
+      color: 0x1a1a1a,
+      metalness: 0.95,
+      roughness: 0.15,
+      envMapIntensity: 1.5,
       flatShading: false
     });
-    const slide = new THREE.Mesh(slideGeometry, slideMaterial);
-    slide.position.set(0, 0.8, -1.5);
-    slide.castShadow = true;
-    this.group.add(slide);
 
-    // Slide serrations
-    for (let i = 0; i < 8; i++) {
-      const serrGeometry = new THREE.BoxGeometry(0.15, 0.1, 0.3);
-      const serr = new THREE.Mesh(serrGeometry, slideMaterial);
-      serr.position.set(0, 1.2, -0.5 - i * 0.4);
+    const gunmetalMaterial = new THREE.MeshStandardMaterial({
+      color: 0x2a2a2a,
+      metalness: 0.9,
+      roughness: 0.25,
+      envMapIntensity: 1.2
+    });
+
+    const gripMaterial = new THREE.MeshStandardMaterial({
+      color: 0x0a0a0a,
+      metalness: 0.3,
+      roughness: 0.85,
+      envMapIntensity: 0.5
+    });
+
+    // Slide (top part) - more detailed with chamfered edges
+    const slideGeometry = new THREE.BoxGeometry(1, 0.7, 4.5);
+    this.slide = new THREE.Mesh(slideGeometry, gunmetalMaterial);
+    this.slide.position.set(0, 0.8, -1.5);
+    this.slide.castShadow = true;
+    this.slide.receiveShadow = true;
+    this.group.add(this.slide);
+
+    // Slide serrations with better detail
+    for (let i = 0; i < 12; i++) {
+      const serrGeometry = new THREE.BoxGeometry(0.15, 0.12, 0.2);
+      const serr = new THREE.Mesh(serrGeometry, metalMaterial);
+      serr.position.set(0, 1.25, -0.3 - i * 0.3);
+      serr.castShadow = true;
       this.group.add(serr);
     }
 
-    // Barrel extending from slide - more realistic
-    const barrelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 1.5, 12);
-    const barrelMaterial = new THREE.MeshStandardMaterial({
-      color: 0x0a0a0a,
-      metalness: 0.95,
-      roughness: 0.1
-    });
-    const barrel = new THREE.Mesh(barrelGeometry, barrelMaterial);
+    // Side slide cuts for detail
+    const sideCutGeometry = new THREE.BoxGeometry(0.05, 0.3, 2);
+    const leftCut = new THREE.Mesh(sideCutGeometry, metalMaterial);
+    leftCut.position.set(-0.53, 0.9, -2);
+    this.group.add(leftCut);
+
+    const rightCut = new THREE.Mesh(sideCutGeometry, metalMaterial);
+    rightCut.position.set(0.53, 0.9, -2);
+    this.group.add(rightCut);
+
+    // Barrel extending from slide - more realistic with rifling hint
+    const barrelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 1.5, 16);
+    const barrel = new THREE.Mesh(barrelGeometry, metalMaterial);
     barrel.rotation.x = Math.PI / 2;
     barrel.position.set(0, 0.8, -4.5);
     barrel.castShadow = true;
+    barrel.receiveShadow = true;
     this.group.add(barrel);
 
-    // Muzzle opening
-    const muzzleGeometry = new THREE.CylinderGeometry(0.35, 0.3, 0.3, 12);
-    const muzzle = new THREE.Mesh(muzzleGeometry, barrelMaterial);
+    // Barrel rifling grooves
+    for (let i = 0; i < 6; i++) {
+      const angle = (i / 6) * Math.PI * 2;
+      const grooveGeometry = new THREE.BoxGeometry(0.02, 1.5, 0.02);
+      const groove = new THREE.Mesh(grooveGeometry, new THREE.MeshStandardMaterial({
+        color: 0x000000,
+        metalness: 1.0,
+        roughness: 0.3
+      }));
+      groove.position.set(Math.cos(angle) * 0.3, 0.8, -4.5);
+      groove.rotation.x = Math.PI / 2;
+      this.group.add(groove);
+    }
+
+    // Muzzle opening with crown
+    const muzzleGeometry = new THREE.CylinderGeometry(0.35, 0.3, 0.3, 16);
+    const muzzle = new THREE.Mesh(muzzleGeometry, metalMaterial);
     muzzle.rotation.x = Math.PI / 2;
-    muzzle.position.set(0, 0.8, -5.2);
+    muzzle.position.set(0, 0.8, -5.3);
+    muzzle.castShadow = true;
     this.group.add(muzzle);
+
+    // Muzzle crown (inner detail)
+    const crownGeometry = new THREE.CylinderGeometry(0.25, 0.28, 0.15, 16);
+    const crown = new THREE.Mesh(crownGeometry, new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      metalness: 0.95,
+      roughness: 0.05
+    }));
+    crown.rotation.x = Math.PI / 2;
+    crown.position.set(0, 0.8, -5.35);
+    this.group.add(crown);
 
     // Frame/Grip - improved shape
     const gripGeometry = new THREE.BoxGeometry(1.1, 2.4, 1.3);
-    const gripMaterial = new THREE.MeshStandardMaterial({
-      color: 0x1a1a1a,
-      metalness: 0.4,
-      roughness: 0.7,
-      flatShading: false
-    });
     const grip = new THREE.Mesh(gripGeometry, gripMaterial);
     grip.position.set(0, -0.5, 0.3);
     grip.castShadow = true;
+    grip.receiveShadow = true;
     this.group.add(grip);
 
-    // Grip texture lines
-    for (let i = 0; i < 5; i++) {
-      const lineGeometry = new THREE.BoxGeometry(1.15, 0.1, 1.35);
-      const line = new THREE.Mesh(lineGeometry, new THREE.MeshStandardMaterial({ color: 0x0a0a0a, metalness: 0.3, roughness: 0.9 }));
-      line.position.set(0, -0.8 - i * 0.3, 0.3);
-      this.group.add(line);
+    // Grip texture - checkered pattern
+    for (let i = 0; i < 6; i++) {
+      for (let j = 0; j < 8; j++) {
+        const checkSize = 0.15;
+        if ((i + j) % 2 === 0) {
+          const checkGeometry = new THREE.BoxGeometry(checkSize, checkSize, 0.05);
+          const check = new THREE.Mesh(checkGeometry, new THREE.MeshStandardMaterial({
+            color: 0x050505,
+            metalness: 0.2,
+            roughness: 0.95
+          }));
+          check.position.set(-0.3 + j * checkSize, -0.8 - i * 0.25, 0.68);
+          this.group.add(check);
+        }
+      }
     }
 
     // Magazine - more realistic
@@ -188,6 +246,16 @@ export class GunModel {
     const handle = new THREE.Mesh(handleGeometry, upperMaterial);
     handle.position.set(0, 1, 0.5);
     this.group.add(handle);
+
+    // Bolt carrier (for animation)
+    const boltGeometry = new THREE.BoxGeometry(0.4, 0.4, 1.2);
+    this.bolt = new THREE.Mesh(boltGeometry, new THREE.MeshStandardMaterial({
+      color: 0x0a0a0a,
+      metalness: 0.95,
+      roughness: 0.1
+    }));
+    this.bolt.position.set(0, 0.5, 0.5);
+    this.group.add(this.bolt);
 
     // Barrel - more realistic with segments
     const barrelGeometry = new THREE.CylinderGeometry(0.25, 0.27, 7, 16);
@@ -648,34 +716,95 @@ export class GunModel {
       const recoilAmount = Math.max(0, this.recoilAnimation);
       this.group.position.z = baseZ + recoilAmount * 0.15;
       this.group.rotation.x = -recoilAmount * 0.3;
+
+      // Slide/bolt blowback animation
+      if (this.slide && this.currentWeaponType === 'pistol') {
+        this.slide.position.z = -1.5 + recoilAmount * 0.8;
+      }
+      if (this.bolt && (this.currentWeaponType === 'rifle' || this.currentWeaponType === 'sniper')) {
+        this.bolt.position.z = 0.5 + recoilAmount * 1.2;
+      }
     } else {
       this.group.position.z += (baseZ - this.group.position.z) * 0.2;
       this.group.rotation.x += (0 - this.group.rotation.x) * 0.2;
+
+      // Reset slide/bolt
+      if (this.slide) {
+        this.slide.position.z += (-1.5 - this.slide.position.z) * 0.3;
+      }
+      if (this.bolt) {
+        this.bolt.position.z += (0.5 - this.bolt.position.z) * 0.3;
+      }
     }
 
-    // Reload animation
+    // Advanced Reload animation
     if (this.isReloading) {
-      this.reloadAnimation += delta * 3;
-      if (this.reloadAnimation < 0.5) {
-        // Magazine drops
+      this.reloadAnimation += delta * 2.5;
+
+      // Stage 1: Magazine eject (0.0 - 0.2)
+      if (this.reloadAnimation < 0.2) {
+        const progress = this.reloadAnimation / 0.2;
         if (this.magazine) {
-          this.magazine.position.y = -1 - this.reloadAnimation * 4;
-          this.magazine.rotation.x = this.reloadAnimation * 2;
+          this.magazine.position.y = -1 - progress * 3;
+          this.magazine.rotation.x = progress * 1.5;
+          this.magazine.rotation.z = progress * 0.5;
         }
-      } else if (this.reloadAnimation < 1.0) {
-        // Magazine inserts
+        // Slide/bolt pull back
+        if (this.slide) {
+          this.slide.position.z = -1.5 + progress * 0.5;
+        }
+      }
+      // Stage 2: Magazine gone, prepare new (0.2 - 0.4)
+      else if (this.reloadAnimation < 0.4) {
+        const progress = (this.reloadAnimation - 0.2) / 0.2;
         if (this.magazine) {
-          this.magazine.position.y = -1 - (1.0 - this.reloadAnimation) * 4;
-          this.magazine.rotation.x = (1.0 - this.reloadAnimation) * 2;
+          this.magazine.visible = false;
         }
-      } else {
-        // Reset
+        // Gun tilt for new mag
+        this.group.rotation.z = progress * 0.3;
+      }
+      // Stage 3: New magazine insert (0.4 - 0.7)
+      else if (this.reloadAnimation < 0.7) {
+        const progress = (this.reloadAnimation - 0.4) / 0.3;
+        if (this.magazine) {
+          this.magazine.visible = true;
+          this.magazine.position.y = -4 + progress * 3;
+          this.magazine.rotation.x = 0;
+          this.magazine.rotation.z = 0;
+        }
+      }
+      // Stage 4: Seat magazine and release slide/bolt (0.7 - 1.0)
+      else if (this.reloadAnimation < 1.0) {
+        const progress = (this.reloadAnimation - 0.7) / 0.3;
+        if (this.magazine) {
+          this.magazine.position.y = -1;
+        }
+        // Slide/bolt release
+        if (this.slide) {
+          this.slide.position.z = -1.5 + (1 - progress) * 0.5;
+        }
+        if (this.bolt) {
+          this.bolt.position.z = 0.5 + (1 - progress) * 1.2;
+        }
+        this.group.rotation.z = (1 - progress) * 0.3;
+      }
+      // Complete
+      else {
         this.isReloading = false;
         this.reloadAnimation = 0;
         if (this.magazine) {
           this.magazine.position.y = -1;
           this.magazine.rotation.x = 0;
+          this.magazine.rotation.z = 0;
+          this.magazine.visible = true;
         }
+        if (this.slide) {
+          this.slide.position.z = -1.5;
+        }
+        if (this.bolt) {
+          this.bolt.position.z = 0.5;
+        }
+        this.group.rotation.z = 0;
       }
     }
   }

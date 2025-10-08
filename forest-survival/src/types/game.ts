@@ -131,6 +131,20 @@ export interface Enemy {
   leftArm?: THREE.Mesh;
   rightArm?: THREE.Mesh;
   torso?: THREE.Mesh;
+  // AI state
+  targetPosition: THREE.Vector3;
+  spreadOffset: THREE.Vector2;
+  lastPathUpdate: number;
+  stuckTimer: number;
+  lastPosition: THREE.Vector3;
+  behaviorState: 'chase' | 'flank' | 'retreat' | 'attack';
+  aggroRange: number;
+  // Advanced AI
+  dodgeSkill: number; // 0-1, higher = better at dodging
+  reactionTime: number; // milliseconds
+  lastDodgeTime: number;
+  dodgeCooldown: number;
+  detectedBullets: Set<THREE.Mesh>;
 }
 
 export interface Bullet {

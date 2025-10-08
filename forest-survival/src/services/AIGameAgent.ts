@@ -134,8 +134,6 @@ Rules:
       // Parse and validate response
       const config = this.parseAndValidateConfig(aiResponse);
       this.gameplayConfig = config;
-
-      console.log('🤖 AI Game Director initialized:', config);
       return config;
     } catch (error) {
       console.error('❌ AI initialization error:', error);
@@ -181,14 +179,11 @@ Respond with updated JSON configuration (same format as before) or "NO_CHANGE" i
       });
 
       if (aiResponse.includes('NO_CHANGE')) {
-        console.log('🤖 AI: No changes needed');
         return this.gameplayConfig;
       }
 
       const config = this.parseAndValidateConfig(aiResponse);
       this.gameplayConfig = config;
-
-      console.log('🤖 AI adapted gameplay:', config);
       return config;
     } catch (error) {
       console.error('❌ AI adaptation error:', error);
@@ -240,7 +235,6 @@ Respond with updated JSON configuration (same format as before) or "NO_CHANGE" i
       return config;
     } catch (error) {
       console.error('❌ Failed to parse AI response:', error);
-      console.log('Raw response:', response);
 
       // Return safe defaults
       return {

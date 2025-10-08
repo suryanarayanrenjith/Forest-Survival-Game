@@ -289,8 +289,7 @@ const ForestSurvivalGame = () => {
     postScene.add(postQuad);
     const postCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
-    // Debug: Verify shaders compiled successfully
-    console.log('Post-processing material created:', finalMaterial.isShaderMaterial);
+    // Post-processing material created
 
     // Check for WebGL errors
     renderer.domElement.addEventListener('webglcontextlost', (event) => {
@@ -299,7 +298,7 @@ const ForestSurvivalGame = () => {
     });
 
     renderer.domElement.addEventListener('webglcontextrestored', () => {
-      console.log('WebGL context restored');
+      // WebGL context restored
     });
 
     // RTX-Style Lighting System
@@ -653,6 +652,7 @@ const ForestSurvivalGame = () => {
     let isReloading = false;
     let unlockedWeapons = ['pistol'];
     let isAiming = false;
+    let lastDamageTaken = 0; // Track when player last took damage
 
     // Check and unlock weapons based on score
     const checkWeaponUnlocks = () => {
@@ -689,7 +689,7 @@ const ForestSurvivalGame = () => {
       let accentColor = 0x880000;
       let enemyHealth = 50;
       let enemySpeed = 0.08;
-      let enemyDamage = 0.3;
+      let enemyDamage = 8;
       let enemyScore = 10;
       let bodyScale = 1;
 
@@ -700,7 +700,7 @@ const ForestSurvivalGame = () => {
           accentColor = 0x003399;
           enemyHealth = 30;
           enemySpeed = 0.15;
-          enemyDamage = 0.2;
+          enemyDamage = 6;
           enemyScore = 15;
           bodyScale = 0.7;
           break;
@@ -710,7 +710,7 @@ const ForestSurvivalGame = () => {
           accentColor = 0x1a661a;
           enemyHealth = 150;
           enemySpeed = 0.04;
-          enemyDamage = 0.5;
+          enemyDamage = 15;
           enemyScore = 30;
           bodyScale = 1.5;
           break;
@@ -720,7 +720,7 @@ const ForestSurvivalGame = () => {
           accentColor = 0x880088;
           enemyHealth = 300;
           enemySpeed = 0.05;
-          enemyDamage = 1.0;
+          enemyDamage = 25;
           enemyScore = 100;
           bodyScale = 2;
           break;
@@ -805,24 +805,46 @@ const ForestSurvivalGame = () => {
       enemyGroup.position.set(x, 1.5 * bodyScale, z);
       scene.add(enemyGroup);
 
+      // Wave-based AI advancement
+      const dodgeSkill = Math.min(0.1 + (wave * 0.03), 0.85); // 10% to 85% dodge skill
+      const reactionTime = Math.max(800 - (wave * 30), 200); // 800ms to 200ms reaction
+      const healthMultiplier = 1 + (wave * 0.15); // 15% more health per wave
+
       return {
         mesh: enemyGroup,
-        health: enemyHealth * diffSettings.healthMult,
-        maxHealth: enemyHealth * diffSettings.healthMult,
+        health: enemyHealth * diffSettings.healthMult * healthMultiplier,
+        maxHealth: enemyHealth * diffSettings.healthMult * healthMultiplier,
         speed: (enemySpeed + Math.random() * 0.02) * diffSettings.speedMult,
         dead: false,
         type,
         damage: enemyDamage * diffSettings.damageMult,
         scoreValue: enemyScore,
         // Animation state
-        walkTime: Math.random() * Math.PI * 2, // Random start for variation
+        walkTime: Math.random() * Math.PI * 2,
         damageFlashTime: 0,
         deathTime: 0,
         leftLeg,
         rightLeg,
         leftArm,
         rightArm,
-        torso
+        torso,
+        // AI state - prevent clumping
+        targetPosition: new THREE.Vector3(x, 0, z),
+        spreadOffset: new THREE.Vector2(
+          (Math.random() - 0.5) * 15,
+          (Math.random() - 0.5) * 15
+        ),
+        lastPathUpdate: 0,
+        stuckTimer: 0,
+        lastPosition: new THREE.Vector3(x, 0, z),
+        behaviorState: 'chase',
+        aggroRange: 50 + Math.random() * 20,
+        // Advanced AI - scales with wave
+        dodgeSkill: dodgeSkill,
+        reactionTime: reactionTime,
+        lastDodgeTime: 0,
+        dodgeCooldown: 1000 / (1 + wave * 0.1), // Faster cooldown at higher waves
+        detectedBullets: new Set()
       };
     };
 
@@ -990,8 +1012,6 @@ const ForestSurvivalGame = () => {
           playerHealth: health,
           score,
           survivalTime: Math.floor((currentTime - startTime) / 1000)
-        }).then(() => {
-          console.log('🤖 AI adapted gameplay configuration');
         }).catch(err => {
           console.error('AI adaptation failed:', err);
         });
@@ -1006,7 +1026,7 @@ const ForestSurvivalGame = () => {
     const keys: Keys = {};
     const moveSpeed = 0.3;
     const sprintMultiplier = 1.8;
-    const jumpPower = 0.4;
+    const baseJumpPower = 0.4;
     const gravity = 0.02;
 
     let velocityY = 0;
@@ -1303,9 +1323,8 @@ const ForestSurvivalGame = () => {
       animationId = requestAnimationFrame(animate);
       const delta = clock.getDelta();
 
-      // Debug: Log first few frames
+      // Track frame count
       if (frameCount < 3) {
-        console.log(`Frame ${frameCount}: Rendering scene with ${scene.children.length} objects`);
         frameCount++;
       }
 
@@ -1398,9 +1417,12 @@ const ForestSurvivalGame = () => {
         }
       }
 
-      // Jump - can jump while moving
+      // Jump - weight-based jump height
       if (keys['Space'] && !isJumping && camera.position.y <= groundLevel + 0.1) {
-        velocityY = jumpPower;
+        const weaponWeight = WEAPONS[currentWeapon].weight;
+        // Heavier weapons reduce jump height significantly
+        const jumpMultiplier = 1.0 / Math.sqrt(weaponWeight);
+        velocityY = baseJumpPower * jumpMultiplier;
         isJumping = true;
       }
 
@@ -1423,6 +1445,7 @@ const ForestSurvivalGame = () => {
       // Infinite world - update chunks and ground based on player position
       updateWorldGeneration(camera.position.x, camera.position.z);
       updateGroundPosition(camera.position.x, camera.position.z);
+
 
       // Continuous enemy spawning
       continuousSpawn();
@@ -1564,7 +1587,7 @@ const ForestSurvivalGame = () => {
         }
       }
 
-      // Update enemies
+      // Update enemies with ADVANCED AI
       for (let i = enemies.length - 1; i >= 0; i--) {
         const enemy = enemies[i];
 
@@ -1616,14 +1639,158 @@ const ForestSurvivalGame = () => {
           enemy.health = Math.min(enemy.maxHealth, enemy.health + diffSettings.regenRate * delta * 10);
         }
 
+        const currentTime = Date.now();
+
+        // Calculate distance to player
         const dx = camera.position.x - enemy.mesh.position.x;
         const dz = camera.position.z - enemy.mesh.position.z;
         const distance = Math.sqrt(dx * dx + dz * dz);
 
-        // Walking animation
+        // === ADVANCED AI BEHAVIOR SYSTEM ===
+
+        // Update path periodically (0.5 second intervals) or when stuck
+        if (currentTime - enemy.lastPathUpdate > 500 || enemy.stuckTimer > 2) {
+          enemy.lastPathUpdate = currentTime;
+
+          // Calculate target with spread offset to prevent clumping
+          const targetX = camera.position.x + enemy.spreadOffset.x;
+          const targetZ = camera.position.z + enemy.spreadOffset.y;
+          enemy.targetPosition.set(targetX, 0, targetZ);
+
+          // Determine behavior based on distance and health
+          if (enemy.health < enemy.maxHealth * 0.3 && enemy.type !== 'boss') {
+            enemy.behaviorState = 'retreat';
+          } else if (distance < 15) {
+            enemy.behaviorState = 'attack';
+          } else if (distance < 30 && enemy.type === 'fast') {
+            enemy.behaviorState = 'flank';
+          } else {
+            enemy.behaviorState = 'chase';
+          }
+
+          // Apply behavior-specific modifications
+          if (enemy.behaviorState === 'flank') {
+            // Circle around player
+            const angle = Math.atan2(dz, dx) + Math.PI / 2;
+            enemy.spreadOffset.x = Math.cos(angle) * 20;
+            enemy.spreadOffset.y = Math.sin(angle) * 20;
+          } else if (enemy.behaviorState === 'retreat') {
+            // Move away from player
+            enemy.spreadOffset.x = -dx * 0.5;
+            enemy.spreadOffset.y = -dz * 0.5;
+          }
+
+          enemy.stuckTimer = 0;
+        }
+
+        // Check if enemy is stuck
+        const movedDistance = enemy.lastPosition.distanceTo(enemy.mesh.position);
+        if (movedDistance < 0.1) {
+          enemy.stuckTimer += delta;
+        } else {
+          enemy.stuckTimer = 0;
+        }
+        enemy.lastPosition.copy(enemy.mesh.position);
+
+        // === ADVANCED BULLET DODGING AI ===
+        let dodgeVector = new THREE.Vector2(0, 0);
+
+        // Detect incoming bullets
+        for (const bullet of bullets) {
+          // Skip if already detected this bullet
+          if (enemy.detectedBullets.has(bullet.mesh)) continue;
+
+          // Calculate bullet trajectory
+          const bulletToEnemy = new THREE.Vector2(
+            enemy.mesh.position.x - bullet.mesh.position.x,
+            enemy.mesh.position.z - bullet.mesh.position.z
+          );
+          const bulletDistance = bulletToEnemy.length();
+
+          // Only react to nearby bullets
+          if (bulletDistance > 20) continue;
+
+          // Check if bullet is heading towards enemy
+          const bulletDir = new THREE.Vector2(bullet.velocity.x, bullet.velocity.z).normalize();
+          const bulletToEnemyNorm = bulletToEnemy.clone().normalize();
+          const dotProduct = bulletDir.dot(bulletToEnemyNorm);
+
+          // If bullet heading towards enemy (dot > 0.5)
+          if (dotProduct > 0.5 && bulletDistance < 15) {
+            // React based on dodge skill and reaction time
+            if (Math.random() < enemy.dodgeSkill && currentTime - enemy.lastDodgeTime > enemy.dodgeCooldown) {
+              // Mark bullet as detected
+              enemy.detectedBullets.add(bullet.mesh);
+
+              // Calculate dodge direction (perpendicular to bullet)
+              const perpDir = new THREE.Vector2(-bulletDir.y, bulletDir.x);
+
+              // Randomly choose left or right dodge
+              if (Math.random() > 0.5) {
+                perpDir.negate();
+              }
+
+              // Stronger dodge for closer bullets
+              const dodgeStrength = (15 - bulletDistance) / 15;
+              dodgeVector.add(perpDir.multiplyScalar(dodgeStrength * 5));
+
+              enemy.lastDodgeTime = currentTime;
+
+              // Quick dash movement
+              enemy.behaviorState = 'flank';
+            }
+          }
+        }
+
+        // Clean up detected bullets that no longer exist
+        for (const detectedBullet of enemy.detectedBullets) {
+          if (!bullets.find(b => b.mesh === detectedBullet)) {
+            enemy.detectedBullets.delete(detectedBullet);
+          }
+        }
+
+        // === OBSTACLE AVOIDANCE ===
+        let avoidanceVector = new THREE.Vector2(0, 0);
+
+        // Avoid other enemies (prevent stacking)
+        for (let j = 0; j < enemies.length; j++) {
+          if (i === j || enemies[j].dead) continue;
+          const other = enemies[j];
+          const odx = enemy.mesh.position.x - other.mesh.position.x;
+          const odz = enemy.mesh.position.z - other.mesh.position.z;
+          const oDist = Math.sqrt(odx * odx + odz * odz);
+
+          if (oDist < 5) { // Personal space radius
+            const repulsion = (5 - oDist) / 5;
+            avoidanceVector.x += (odx / oDist) * repulsion * 2;
+            avoidanceVector.y += (odz / oDist) * repulsion * 2;
+          }
+        }
+
+        // Avoid terrain obstacles
+        for (const obj of terrainObjects) {
+          if (!obj.collidable) continue;
+          const odx = enemy.mesh.position.x - obj.x;
+          const odz = enemy.mesh.position.z - obj.z;
+          const oDist = Math.sqrt(odx * odx + odz * odz);
+
+          if (oDist < obj.radius + 3) {
+            const repulsion = (obj.radius + 3 - oDist) / (obj.radius + 3);
+            avoidanceVector.x += (odx / oDist) * repulsion * 3;
+            avoidanceVector.y += (odz / oDist) * repulsion * 3;
+          }
+        }
+
+        // === SMART MOVEMENT ===
+        const targetDx = enemy.targetPosition.x - enemy.mesh.position.x;
+        const targetDz = enemy.targetPosition.z - enemy.mesh.position.z;
+        const targetDistance = Math.sqrt(targetDx * targetDx + targetDz * targetDz);
+
+        // Keep moving until very close to player (not target position)
         const isMoving = distance > 2.5;
-        if (isMoving) {
-          enemy.walkTime += delta * 8; // Walking speed multiplier
+
+        if (isMoving && distance < enemy.aggroRange) {
+          enemy.walkTime += delta * 8;
 
           // Leg animation - alternating swing
           if (enemy.leftLeg && enemy.rightLeg) {
@@ -1642,9 +1809,46 @@ const ForestSurvivalGame = () => {
             enemy.torso.position.y = 0.2 + Math.sin(enemy.walkTime * 2) * 0.05;
           }
 
-          enemy.mesh.position.x += (dx / distance) * enemy.speed;
-          enemy.mesh.position.z += (dz / distance) * enemy.speed;
-          enemy.mesh.lookAt(camera.position.x, enemy.mesh.position.y, camera.position.z);
+          // Combine target direction with avoidance and dodging
+          const moveDirX = (targetDx / targetDistance) + avoidanceVector.x + dodgeVector.x;
+          const moveDirZ = (targetDz / targetDistance) + avoidanceVector.y + dodgeVector.y;
+          const moveLength = Math.sqrt(moveDirX * moveDirX + moveDirZ * moveDirZ);
+
+          if (moveLength > 0) {
+            const normalizedX = moveDirX / moveLength;
+            const normalizedZ = moveDirZ / moveLength;
+
+            // Speed variations based on behavior
+            let speedMult = 1.0;
+            if (enemy.behaviorState === 'retreat') speedMult = 1.5;
+            else if (enemy.behaviorState === 'flank') speedMult = 1.2;
+            else if (enemy.behaviorState === 'attack') speedMult = 1.3;
+
+            const newX = enemy.mesh.position.x + normalizedX * enemy.speed * speedMult;
+            const newZ = enemy.mesh.position.z + normalizedZ * enemy.speed * speedMult;
+
+            // Only move if not colliding with terrain
+            if (!checkTerrainCollision(newX, newZ)) {
+              enemy.mesh.position.x = newX;
+              enemy.mesh.position.z = newZ;
+            } else {
+              // If stuck, try moving perpendicular
+              const perpX = enemy.mesh.position.x + normalizedZ * enemy.speed;
+              const perpZ = enemy.mesh.position.z - normalizedX * enemy.speed;
+              if (!checkTerrainCollision(perpX, perpZ)) {
+                enemy.mesh.position.x = perpX;
+                enemy.mesh.position.z = perpZ;
+              }
+            }
+
+            // Look at player (with some smoothing)
+            const lookAtX = THREE.MathUtils.lerp(
+              enemy.mesh.rotation.y,
+              Math.atan2(dx, dz),
+              0.1
+            );
+            enemy.mesh.rotation.y = lookAtX;
+          }
         } else {
           // Reset to idle pose
           if (enemy.leftLeg) enemy.leftLeg.rotation.x *= 0.9;
@@ -1664,15 +1868,20 @@ const ForestSurvivalGame = () => {
           }
         }
 
+        // Enemy attack with damage cooldown (500ms between hits)
         if (checkCollision(camera.position, enemy.mesh.position, 2.5)) {
-          health -= enemy.damage;
-          soundManager.play('playerHurt', 0.5);
+          const now = Date.now();
+          if (now - lastDamageTaken > 500) {
+            health -= enemy.damage;
+            lastDamageTaken = now;
+            soundManager.play('playerHurt', 0.5);
 
-          if (combo > 0) {
-            combo = Math.max(0, combo - 1);
+            if (combo > 0) {
+              combo = Math.max(0, combo - 1);
+            }
+
+            updateGameState();
           }
-
-          updateGameState();
 
           if (health <= 0) {
             health = 0;
@@ -1780,7 +1989,6 @@ const ForestSurvivalGame = () => {
 
     try {
       // Initialize AI agent
-      console.log('🤖 Initializing AI with prompt:', prompt);
       const agent = new AIGameAgent(apiKey, prompt);
       const config = await agent.initialize();
 
@@ -1824,54 +2032,9 @@ const ForestSurvivalGame = () => {
     return <MobileWarning />;
   }
 
-  // Mode Selection (Initial Screen)
+  // Main Menu (Initial Screen)
   if (gameMode === 'none') {
-    return (
-      <div className="fixed inset-0 bg-gradient-to-b from-gray-900 via-purple-900 to-black flex items-center justify-center z-50 p-4">
-        <div className="text-center z-10 space-y-8">
-          <div style={{ animation: 'fadeIn 1s ease-out' }}>
-            <h1 className="text-5xl md:text-6xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-400 via-purple-500 to-pink-600 mb-4 tracking-wider drop-shadow-2xl">
-              {t('gameTitle')}
-            </h1>
-            <p className="text-gray-300 text-xl">Choose Your Experience</p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl">
-            {/* AI Mode */}
-            <button
-              onClick={() => handleModeSelection('ai')}
-              className="bg-gradient-to-br from-purple-900 via-pink-900 to-purple-900 p-8 rounded-3xl border-2 border-purple-500 hover:border-purple-400 transition-all transform hover:scale-105 active:scale-95"
-            >
-              <div className="text-6xl mb-4">🤖</div>
-              <h2 className="text-3xl font-bold text-purple-300 mb-2">AI Mode</h2>
-              <p className="text-gray-300 mb-4">Dynamic, personalized gameplay</p>
-              <ul className="text-sm text-gray-400 space-y-2 text-left">
-                <li>✓ Describe your perfect game</li>
-                <li>✓ AI adapts to your skill</li>
-                <li>✓ Progressive difficulty</li>
-                <li>✓ Unique every time</li>
-              </ul>
-            </button>
-
-            {/* Classic Mode */}
-            <button
-              onClick={() => handleModeSelection('classic')}
-              className="bg-gradient-to-br from-green-900 via-emerald-900 to-green-900 p-8 rounded-3xl border-2 border-green-500 hover:border-green-400 transition-all transform hover:scale-105 active:scale-95"
-            >
-              <div className="text-6xl mb-4">🎮</div>
-              <h2 className="text-3xl font-bold text-green-300 mb-2">Classic Mode</h2>
-              <p className="text-gray-300 mb-4">Traditional survival experience</p>
-              <ul className="text-sm text-gray-400 space-y-2 text-left">
-                <li>✓ Choose difficulty</li>
-                <li>✓ Day/Night selection</li>
-                <li>✓ Balanced gameplay</li>
-                <li>✓ No API key needed</li>
-              </ul>
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+    return <MainMenu onStartGame={handleAIGameStart} onClassicMode={() => handleModeSelection('classic')} t={t} />;
   }
 
   // API Key Input Screen (AI Mode)
@@ -1879,7 +2042,7 @@ const ForestSurvivalGame = () => {
     return <APIKeyInput onSubmit={handleAPIKeySubmit} onSkipAI={handleSkipAI} />;
   }
 
-  // AI Prompt Menu
+  // AI Initializing Screen
   if (showMenu) {
     return (
       <>
@@ -1911,7 +2074,6 @@ const ForestSurvivalGame = () => {
             </button>
           </div>
         )}
-        <MainMenu onStartGame={handleAIGameStart} t={t} />
       </>
     );
   }
@@ -1940,6 +2102,7 @@ const ForestSurvivalGame = () => {
           unlockedWeapons={gameState.unlockedWeapons}
           currentWeapon={gameState.currentWeapon}
         />
+
       </div>
 
       <div className="absolute inset-0" style={{ zIndex: 10, pointerEvents: 'none' }}>

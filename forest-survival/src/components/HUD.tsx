@@ -89,7 +89,7 @@ const HUD = ({ health, ammo, maxAmmo, enemiesKilled, score, wave, weaponName, co
         </div>
       )}
 
-      {/* Weapon Selector - Bottom Right - Minimal */}
+      {/* Weapon Selector - Bottom Right */}
       <div className="absolute bottom-6 right-6 select-none">
         <div className="text-white text-xs font-mono mb-2 text-right opacity-50">WEAPONS</div>
         <div className="grid grid-cols-3 gap-1.5">

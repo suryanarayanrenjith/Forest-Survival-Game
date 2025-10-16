@@ -9,7 +9,7 @@ interface PauseMenuProps {
   t: (key: string) => string;
 }
 
-const PauseMenu = ({ health, ammo, maxAmmo, enemiesKilled, score, wave, onMainMenu, t }: PauseMenuProps) => {
+const PauseMenu = ({ health, ammo, maxAmmo, enemiesKilled, score, wave, onMainMenu }: PauseMenuProps) => {
   return (
     <div
       className="absolute inset-0 flex items-center justify-center overflow-y-auto p-4"

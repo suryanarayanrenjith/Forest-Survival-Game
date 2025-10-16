@@ -2,8 +2,11 @@ import { useRef, useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { Analytics } from '@vercel/analytics/react';
 import { GunModel } from './utils/GunModel';
-import { MuzzleFlash, BulletTracer, ImpactEffect } from './utils/Effects';
+import { MuzzleFlash, BulletTracer, ImpactEffect, BloodSplatter } from './utils/Effects';
 import { soundManager } from './utils/SoundManager';
+import { AIBehaviorSystem } from './utils/AIBehaviorSystem';
+import { EnemyPerception } from './utils/EnemyPerception';
+import { AttackSystem } from './utils/AttackSystem';
 import HUD from './components/HUD';
 import MainMenu from './components/MainMenu';
 import ClassicMenu from './components/ClassicMenu';
@@ -11,9 +14,7 @@ import GameOver from './components/GameOver';
 import PauseMenu from './components/PauseMenu';
 import Notifications from './components/Notifications';
 import MobileWarning from './components/MobileWarning';
-import APIKeyInput from './components/APIKeyInput';
 import { WEAPONS, type Enemy, type Bullet, type PowerUp, type Particle, type TerrainObject, type Keys, type GameState } from './types/game';
-import { AIGameAgent, type GameplayConfig } from './services/AIGameAgent';
 
 interface Translations {
   [key: string]: {
@@ -69,21 +70,14 @@ const t = (key: string): string => TRANSLATIONS[locale]?.[key as keyof typeof TR
 
 const ForestSurvivalGame = () => {
   const mountRef = useRef<HTMLDivElement>(null);
-  const [gameMode, setGameMode] = useState<'none' | 'ai' | 'classic'>('none');
-  const [showAPIKeyInput, setShowAPIKeyInput] = useState(false);
-  const [apiKey, setApiKey] = useState<string>('');
-  const [showMenu, setShowMenu] = useState(false);
+  const [gameMode, setGameMode] = useState<'none' | 'classic'>('none');
   const [showClassicMenu, setShowClassicMenu] = useState(false);
   const [gameStarted, setGameStarted] = useState(false);
-  const [aiConfig, setAiConfig] = useState<GameplayConfig | null>(null);
   const [classicDifficulty, setClassicDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
   const [classicTimeOfDay, setClassicTimeOfDay] = useState<'day' | 'night'>('day');
-  const [isInitializingAI, setIsInitializingAI] = useState(false);
-  const [aiError, setAiError] = useState<string>('');
   const [isPaused, setIsPaused] = useState(false);
   const [showWaveComplete, setShowWaveComplete] = useState(false);
   const [powerUpMessage, setPowerUpMessage] = useState<string>('');
-  const aiAgentRef = useRef<AIGameAgent | null>(null);
 
   // Mobile detection
   const [isMobile, setIsMobile] = useState(false);
@@ -121,32 +115,14 @@ const ForestSurvivalGame = () => {
   useEffect(() => {
     if (!gameStarted) return;
 
-    // Determine configuration based on game mode
-    let timeOfDay: 'day' | 'night' | 'dawn' | 'dusk' | 'bloodmoon';
-    let diffSettings: any;
-
-    if (gameMode === 'ai' && aiConfig) {
-      timeOfDay = aiConfig.timeOfDay;
-      // atmosphere = aiConfig.atmosphere; // Future: implement atmosphere rendering
-      diffSettings = {
-        healthMult: aiConfig.enemyDifficulty,
-        speedMult: aiConfig.enemySpeed,
-        damageMult: aiConfig.enemyDifficulty,
-        spawnMult: aiConfig.enemySpawnRate,
-        regenRate: aiConfig.intensity === 'extreme' ? 0.5 : aiConfig.intensity === 'intense' ? 0.3 : 0,
-        progressive: aiConfig.progressiveDifficulty,
-        rampRate: aiConfig.difficultyRamp
-      };
-    } else {
-      // Classic mode
-      timeOfDay = classicTimeOfDay as any;
-      const classicSettings = {
-        easy: { healthMult: 1.5, speedMult: 1.3, damageMult: 1.5, spawnMult: 1.3, regenRate: 0 },
-        medium: { healthMult: 2.5, speedMult: 1.8, damageMult: 2.2, spawnMult: 1.8, regenRate: 0.2 },
-        hard: { healthMult: 4.0, speedMult: 2.5, damageMult: 3.5, spawnMult: 2.5, regenRate: 0.5 }
-      };
-      diffSettings = { ...classicSettings[classicDifficulty], progressive: false, rampRate: 0 };
-    }
+    // Determine configuration based on difficulty
+    const timeOfDay: 'day' | 'night' | 'dawn' | 'dusk' | 'bloodmoon' = classicTimeOfDay as any;
+    const classicSettings = {
+      easy: { healthMult: 1.5, speedMult: 1.3, damageMult: 1.5, spawnMult: 1.3, regenRate: 0 },
+      medium: { healthMult: 2.5, speedMult: 1.8, damageMult: 2.2, spawnMult: 1.8, regenRate: 0.2 },
+      hard: { healthMult: 4.0, speedMult: 2.5, damageMult: 3.5, spawnMult: 2.5, regenRate: 0.5 }
+    };
+    const diffSettings = { ...classicSettings[classicDifficulty], progressive: false, rampRate: 0 };
 
     // Scene setup with dynamic atmosphere
     const scene = new THREE.Scene();
@@ -652,7 +628,10 @@ const ForestSurvivalGame = () => {
     let isReloading = false;
     let unlockedWeapons = ['pistol'];
     let isAiming = false;
-    let lastDamageTaken = 0; // Track when player last took damage
+
+    // Track player velocity for AI prediction
+    let playerVelocity = new THREE.Vector3(0, 0, 0);
+    let lastPlayerPosition = new THREE.Vector3(0, 5, 10);
 
     // Check and unlock weapons based on score
     const checkWeaponUnlocks = () => {
@@ -673,6 +652,11 @@ const ForestSurvivalGame = () => {
     const muzzleFlashes: MuzzleFlash[] = [];
     const bulletTracers: BulletTracer[] = [];
     const impactEffects: ImpactEffect[] = [];
+    const bloodSplatters: BloodSplatter[] = [];
+
+    // Camera shake system
+    let cameraShakeIntensity = 0;
+    let cameraShakeDecay = 0.9;
 
     // Game objects
     const enemies: Enemy[] = [];
@@ -810,6 +794,24 @@ const ForestSurvivalGame = () => {
       const reactionTime = Math.max(800 - (wave * 30), 200); // 800ms to 200ms reaction
       const healthMultiplier = 1 + (wave * 0.15); // 15% more health per wave
 
+      // Determine AI personality based on type
+      let personality: 'aggressive' | 'tactical' | 'defensive' | 'support' = 'aggressive';
+      if (type === 'fast') personality = 'tactical';
+      else if (type === 'tank') personality = 'defensive';
+      else if (type === 'boss') personality = 'aggressive';
+
+      // Create AI systems
+      const aiBehavior = new AIBehaviorSystem(personality);
+      const perception = new EnemyPerception(
+        500, // Vision range - VERY LARGE so enemies always see player
+        Math.PI * 2, // Vision angle - 360 degrees (see all around)
+        type === 'boss' ? 100 : 80, // Hearing range
+        1.5 // Hearing sensitivity - increased
+      );
+      const attackSystem = new AttackSystem(
+        AttackSystem.createConfigForType(type, enemyDamage * diffSettings.damageMult)
+      );
+
       return {
         mesh: enemyGroup,
         health: enemyHealth * diffSettings.healthMult * healthMultiplier,
@@ -844,7 +846,17 @@ const ForestSurvivalGame = () => {
         reactionTime: reactionTime,
         lastDodgeTime: 0,
         dodgeCooldown: 1000 / (1 + wave * 0.1), // Faster cooldown at higher waves
-        detectedBullets: new Set()
+        detectedBullets: new Set(),
+        // Attack animation
+        isAttacking: false,
+        attackTime: 0,
+        attackCooldown: type === 'fast' ? 800 : type === 'boss' ? 1500 : 1000,
+        lastAttackTime: 0,
+        // NEW: Advanced AI Systems
+        aiBehavior,
+        perception,
+        attackSystem,
+        playerVelocity: new THREE.Vector3(0, 0, 0)
       };
     };
 
@@ -905,24 +917,12 @@ const ForestSurvivalGame = () => {
         const x = Math.cos(angle) * distance + camera.position.x;
         const z = Math.sin(angle) * distance + camera.position.z;
 
-        // Determine enemy type based on game mode
+        // Determine enemy type based on wave
         let type: 'normal' | 'fast' | 'tank' | 'boss' = 'normal';
-
-        if (gameMode === 'ai' && aiConfig) {
-          // AI-controlled distribution
-          const rand = Math.random() * 100;
-          let cumulative = 0;
-          if (rand < (cumulative += aiConfig.spawnVariety.normal)) type = 'normal';
-          else if (rand < (cumulative += aiConfig.spawnVariety.fast)) type = 'fast';
-          else if (rand < (cumulative += aiConfig.spawnVariety.tank)) type = 'tank';
-          else type = 'boss';
-        } else {
-          // Classic mode distribution
-          const rand = Math.random();
-          if (wave >= 5 && rand < 0.1) type = 'boss';
-          else if (wave >= 3 && rand < 0.3) type = 'tank';
-          else if (wave >= 2 && rand < 0.5) type = 'fast';
-        }
+        const rand = Math.random();
+        if (wave >= 5 && rand < 0.1) type = 'boss';
+        else if (wave >= 3 && rand < 0.3) type = 'tank';
+        else if (wave >= 2 && rand < 0.5) type = 'fast';
 
         enemies.push(createEnemy(x, z, type));
       }
@@ -945,35 +945,17 @@ const ForestSurvivalGame = () => {
 
     // Continuous enemy spawning
     let lastSpawnTime = Date.now();
-    let lastAdaptationTime = Date.now();
 
-    // Determine spawn interval based on mode
-    let spawnInterval: number;
-    let maxEnemies: number;
-
-    if (gameMode === 'ai' && aiConfig) {
-      spawnInterval = aiConfig.intensity === 'extreme' ? 4000 :
-                      aiConfig.intensity === 'intense' ? 6000 :
-                      aiConfig.intensity === 'moderate' ? 8000 : 12000;
-      maxEnemies = Math.floor(30 * aiConfig.enemySpawnRate);
-    } else {
-      // Classic mode intervals
-      spawnInterval = classicDifficulty === 'easy' ? 10000 : classicDifficulty === 'medium' ? 7000 : 5000;
-      maxEnemies = classicDifficulty === 'easy' ? 25 : classicDifficulty === 'medium' ? 35 : 50;
-    }
+    // Determine spawn interval based on difficulty
+    const spawnInterval = classicDifficulty === 'easy' ? 10000 : classicDifficulty === 'medium' ? 7000 : 5000;
+    const maxEnemies = classicDifficulty === 'easy' ? 25 : classicDifficulty === 'medium' ? 35 : 50;
 
     const continuousSpawn = () => {
       const currentTime = Date.now();
 
       if (currentTime - lastSpawnTime > spawnInterval && enemies.length < maxEnemies) {
-        let spawnCount: number;
-
-        if (gameMode === 'ai' && aiConfig) {
-          spawnCount = Math.floor(2 + Math.random() * 3 * aiConfig.enemySpawnRate);
-        } else {
-          const baseSpawn = classicDifficulty === 'easy' ? 2 : classicDifficulty === 'medium' ? 3 : 4;
-          spawnCount = Math.floor(baseSpawn + Math.random() * 3);
-        }
+        const baseSpawn = classicDifficulty === 'easy' ? 2 : classicDifficulty === 'medium' ? 3 : 4;
+        const spawnCount = Math.floor(baseSpawn + Math.random() * 3);
 
         for (let i = 0; i < spawnCount; i++) {
           const angle = Math.random() * Math.PI * 2;
@@ -983,42 +965,16 @@ const ForestSurvivalGame = () => {
 
           // Determine enemy type
           let type: 'normal' | 'fast' | 'tank' | 'boss' = 'normal';
-
-          if (gameMode === 'ai' && aiConfig) {
-            const rand = Math.random() * 100;
-            let cumulative = 0;
-            if (rand < (cumulative += aiConfig.spawnVariety.normal)) type = 'normal';
-            else if (rand < (cumulative += aiConfig.spawnVariety.fast)) type = 'fast';
-            else if (rand < (cumulative += aiConfig.spawnVariety.tank)) type = 'tank';
-            else type = 'boss';
-          } else {
-            const rand = Math.random();
-            if (wave >= 3 && rand < (classicDifficulty === 'hard' ? 0.15 : 0.05)) type = 'boss';
-            else if (wave >= 2 && rand < (classicDifficulty === 'hard' ? 0.35 : 0.2)) type = 'tank';
-            else if (rand < (classicDifficulty === 'hard' ? 0.50 : 0.4)) type = 'fast';
-          }
+          const rand = Math.random();
+          if (wave >= 3 && rand < (classicDifficulty === 'hard' ? 0.15 : 0.05)) type = 'boss';
+          else if (wave >= 2 && rand < (classicDifficulty === 'hard' ? 0.35 : 0.2)) type = 'tank';
+          else if (rand < (classicDifficulty === 'hard' ? 0.50 : 0.4)) type = 'fast';
 
           enemies.push(createEnemy(x, z, type));
         }
         lastSpawnTime = currentTime;
       }
-
-      // AI Adaptation (only in AI mode)
-      if (gameMode === 'ai' && currentTime - lastAdaptationTime > 60000 && aiAgentRef.current) {
-        lastAdaptationTime = currentTime;
-        aiAgentRef.current.adaptGameplay({
-          currentWave: wave,
-          enemiesKilled,
-          playerHealth: health,
-          score,
-          survivalTime: Math.floor((currentTime - startTime) / 1000)
-        }).catch(err => {
-          console.error('AI adaptation failed:', err);
-        });
-      }
     };
-
-    const startTime = Date.now();
 
     spawnWave();
 
@@ -1187,6 +1143,29 @@ const ForestSurvivalGame = () => {
         gunModel.group.getWorldPosition(gunWorldPos);
         const flash = new MuzzleFlash(scene, gunWorldPos, weapon.bulletColor);
         muzzleFlashes.push(flash);
+
+        // Notify all enemies about gunshot
+        for (const enemy of enemies) {
+          if (!enemy.dead && enemy.perception) {
+            enemy.perception.registerSound(camera.position.clone(), 1.0);
+          }
+        }
+
+        // WEAPON RECOIL - Camera kick based on weapon type
+        const recoilAmount = weapon.name.includes('Minigun') ? 0.012 :
+                             weapon.name.includes('Shotgun') ? 0.035 :
+                             weapon.name.includes('Sniper') ? 0.045 :
+                             weapon.name.includes('Launcher') ? 0.055 :
+                             weapon.name.includes('Rifle') ? 0.018 : 0.01;
+
+        // Apply upward camera kick for recoil
+        camera.rotation.x -= recoilAmount;
+
+        // Horizontal recoil variation for realism
+        camera.rotation.y += (Math.random() - 0.5) * recoilAmount * 0.3;
+
+        // SCREEN SHAKE on shooting
+        cameraShakeIntensity = Math.min(cameraShakeIntensity + recoilAmount * 2.5, 0.15);
       }
     };
 
@@ -1435,12 +1414,19 @@ const ForestSurvivalGame = () => {
         isJumping = false;
       }
 
-      // Head bob
-      if ((keys['KeyW'] || keys['KeyS'] || keys['KeyA'] || keys['KeyD']) && !isJumping) {
+      // Head bob for realistic movement feel
+      if (isMoving && !isJumping) {
         const bobAmount = isRunning ? 0.08 : 0.05;
         const bobSpeed = isRunning ? 0.3 : 0.18;
-        camera.position.y = groundLevel + Math.sin(Date.now() * bobSpeed * 0.01) * bobAmount;
+        const time = Date.now() * bobSpeed * 0.01;
+
+        // Vertical head bob only - no rotation to avoid camera issues
+        camera.position.y = groundLevel + Math.sin(time) * bobAmount;
       }
+
+      // Track player velocity for AI prediction
+      playerVelocity.subVectors(camera.position, lastPlayerPosition).divideScalar(delta > 0 ? delta : 0.016);
+      lastPlayerPosition.copy(camera.position);
 
       // Infinite world - update chunks and ground based on player position
       updateWorldGeneration(camera.position.x, camera.position.z);
@@ -1470,6 +1456,29 @@ const ForestSurvivalGame = () => {
           impactEffects[i].dispose(scene);
           impactEffects.splice(i, 1);
         }
+      }
+
+      // Update blood splatters
+      for (let i = bloodSplatters.length - 1; i >= 0; i--) {
+        if (bloodSplatters[i].update(delta)) {
+          bloodSplatters[i].dispose(scene);
+          bloodSplatters.splice(i, 1);
+        }
+      }
+
+      // Apply camera shake effect
+      if (cameraShakeIntensity > 0.001) {
+        const shakeX = (Math.random() - 0.5) * cameraShakeIntensity;
+        const shakeY = (Math.random() - 0.5) * cameraShakeIntensity;
+        const shakeZ = (Math.random() - 0.5) * cameraShakeIntensity;
+
+        camera.position.x += shakeX;
+        camera.position.y += shakeY;
+        camera.position.z += shakeZ;
+
+        cameraShakeIntensity *= cameraShakeDecay; // Decay shake over time
+      } else {
+        cameraShakeIntensity = 0;
       }
 
       // Update particles
@@ -1542,6 +1551,18 @@ const ForestSurvivalGame = () => {
             // Trigger damage flash animation
             enemy.damageFlashTime = 0.3;
 
+            // BLOOD SPLATTER EFFECT - Realistic hit feedback
+            const hitDirection = new THREE.Vector3()
+              .subVectors(enemy.mesh.position, bullet.mesh.position)
+              .normalize();
+            const blood = new BloodSplatter(
+              scene,
+              enemy.mesh.position.clone(),
+              hitDirection,
+              12 // Particle count
+            );
+            bloodSplatters.push(blood);
+
             createParticles(enemy.mesh.position, 0xff0000, 3); // Reduced particles
             soundManager.play('hit', 0.4);
 
@@ -1587,20 +1608,18 @@ const ForestSurvivalGame = () => {
         }
       }
 
-      // Update enemies with ADVANCED AI
+      // === NEW ADVANCED AI SYSTEM ===
       for (let i = enemies.length - 1; i >= 0; i--) {
         const enemy = enemies[i];
 
-        // Death animation
+        // Death animation (unchanged)
         if (enemy.dead && enemy.deathTime > 0) {
           enemy.deathTime -= delta;
           const deathProgress = 1.0 - (enemy.deathTime / 1.0);
 
-          // Ragdoll-like fall
           enemy.mesh.rotation.x = deathProgress * Math.PI / 2;
           enemy.mesh.position.y = 1.5 - deathProgress * 1.5;
 
-          // Limbs spread out
           if (enemy.leftArm) {
             enemy.leftArm.rotation.z = deathProgress * Math.PI / 3;
             enemy.leftArm.rotation.x = deathProgress * Math.PI / 4;
@@ -1616,7 +1635,6 @@ const ForestSurvivalGame = () => {
             enemy.rightLeg.rotation.x = -deathProgress * Math.PI / 6;
           }
 
-          // Fade out
           enemy.mesh.traverse((child) => {
             if (child instanceof THREE.Mesh && child.material instanceof THREE.Material) {
               child.material.opacity = 1.0 - deathProgress;
@@ -1624,7 +1642,6 @@ const ForestSurvivalGame = () => {
             }
           });
 
-          // Remove after animation completes
           if (enemy.deathTime <= 0) {
             scene.remove(enemy.mesh);
             enemies.splice(i, 1);
@@ -1634,227 +1651,164 @@ const ForestSurvivalGame = () => {
 
         if (enemy.dead) continue;
 
-        // Enemy health regeneration on higher difficulties
+        // Health regeneration
         if (diffSettings.regenRate > 0 && enemy.health < enemy.maxHealth) {
           enemy.health = Math.min(enemy.maxHealth, enemy.health + diffSettings.regenRate * delta * 10);
         }
 
-        const currentTime = Date.now();
+        // === PERCEPTION SYSTEM ===
+        const perception = enemy.perception?.perceive(
+          enemy.mesh.position,
+          enemy.mesh.rotation.y,
+          camera.position,
+          playerVelocity,
+          terrainObjects,
+          timeOfDay === 'night'
+        );
 
-        // Calculate distance to player
-        const dx = camera.position.x - enemy.mesh.position.x;
-        const dz = camera.position.z - enemy.mesh.position.z;
-        const distance = Math.sqrt(dx * dx + dz * dz);
+        const canSeePlayer = perception?.canSeePlayer || false;
+        const canHearPlayer = perception?.canHearPlayer || false;
+        const distance = enemy.mesh.position.distanceTo(camera.position);
 
-        // === ADVANCED AI BEHAVIOR SYSTEM ===
+        // === AI DECISION MAKING ===
+        if (enemy.aiBehavior && perception) {
+          const aiDecision = enemy.aiBehavior.makeDecision({
+            enemyPosition: enemy.mesh.position,
+            enemyRotation: enemy.mesh.rotation.y,
+            playerPosition: camera.position,
+            playerVelocity: playerVelocity,
+            distanceToPlayer: distance,
+            health: enemy.health,
+            maxHealth: enemy.maxHealth,
+            type: enemy.type,
+            allEnemies: enemies,
+            terrainObjects: terrainObjects,
+            canSeePlayer,
+            hearPlayerShooting: canHearPlayer,
+            timeSinceLastSawPlayer: perception.timeSinceLastSeen,
+            isInCover: false
+          }, delta);
 
-        // Update path periodically (0.5 second intervals) or when stuck
-        if (currentTime - enemy.lastPathUpdate > 500 || enemy.stuckTimer > 2) {
-          enemy.lastPathUpdate = currentTime;
+          // Update target position from AI decision
+          enemy.targetPosition.copy(aiDecision.targetPosition);
 
-          // Calculate target with spread offset to prevent clumping
-          const targetX = camera.position.x + enemy.spreadOffset.x;
-          const targetZ = camera.position.z + enemy.spreadOffset.y;
-          enemy.targetPosition.set(targetX, 0, targetZ);
+          // === MOVEMENT ===
+          const isMoving = distance > 2.0 && (!enemy.attackSystem || enemy.attackSystem.canMove());
 
-          // Determine behavior based on distance and health
-          if (enemy.health < enemy.maxHealth * 0.3 && enemy.type !== 'boss') {
-            enemy.behaviorState = 'retreat';
-          } else if (distance < 15) {
-            enemy.behaviorState = 'attack';
-          } else if (distance < 30 && enemy.type === 'fast') {
-            enemy.behaviorState = 'flank';
+          if (isMoving) {
+            enemy.walkTime += delta * 8;
+
+            // Leg animation
+            if (enemy.leftLeg && enemy.rightLeg) {
+              enemy.leftLeg.rotation.x = Math.sin(enemy.walkTime) * 0.5;
+              enemy.rightLeg.rotation.x = Math.sin(enemy.walkTime + Math.PI) * 0.5;
+            }
+
+            // Movement direction
+            const moveDirX = enemy.targetPosition.x - enemy.mesh.position.x;
+            const moveDirZ = enemy.targetPosition.z - enemy.mesh.position.z;
+            const moveLength = Math.sqrt(moveDirX * moveDirX + moveDirZ * moveDirZ);
+
+            if (moveLength > 0) {
+              const normalizedX = moveDirX / moveLength;
+              const normalizedZ = moveDirZ / moveLength;
+
+              const newX = enemy.mesh.position.x + normalizedX * enemy.speed * aiDecision.moveSpeed;
+              const newZ = enemy.mesh.position.z + normalizedZ * enemy.speed * aiDecision.moveSpeed;
+
+              if (!checkTerrainCollision(newX, newZ)) {
+                enemy.mesh.position.x = newX;
+                enemy.mesh.position.z = newZ;
+              }
+
+              // Look at player
+              const dx = camera.position.x - enemy.mesh.position.x;
+              const dz = camera.position.z - enemy.mesh.position.z;
+              enemy.mesh.rotation.y = THREE.MathUtils.lerp(
+                enemy.mesh.rotation.y,
+                Math.atan2(dx, dz),
+                0.1
+              );
+            }
           } else {
-            enemy.behaviorState = 'chase';
-          }
-
-          // Apply behavior-specific modifications
-          if (enemy.behaviorState === 'flank') {
-            // Circle around player
-            const angle = Math.atan2(dz, dx) + Math.PI / 2;
-            enemy.spreadOffset.x = Math.cos(angle) * 20;
-            enemy.spreadOffset.y = Math.sin(angle) * 20;
-          } else if (enemy.behaviorState === 'retreat') {
-            // Move away from player
-            enemy.spreadOffset.x = -dx * 0.5;
-            enemy.spreadOffset.y = -dz * 0.5;
-          }
-
-          enemy.stuckTimer = 0;
-        }
-
-        // Check if enemy is stuck
-        const movedDistance = enemy.lastPosition.distanceTo(enemy.mesh.position);
-        if (movedDistance < 0.1) {
-          enemy.stuckTimer += delta;
-        } else {
-          enemy.stuckTimer = 0;
-        }
-        enemy.lastPosition.copy(enemy.mesh.position);
-
-        // === ADVANCED BULLET DODGING AI ===
-        let dodgeVector = new THREE.Vector2(0, 0);
-
-        // Detect incoming bullets
-        for (const bullet of bullets) {
-          // Skip if already detected this bullet
-          if (enemy.detectedBullets.has(bullet.mesh)) continue;
-
-          // Calculate bullet trajectory
-          const bulletToEnemy = new THREE.Vector2(
-            enemy.mesh.position.x - bullet.mesh.position.x,
-            enemy.mesh.position.z - bullet.mesh.position.z
-          );
-          const bulletDistance = bulletToEnemy.length();
-
-          // Only react to nearby bullets
-          if (bulletDistance > 20) continue;
-
-          // Check if bullet is heading towards enemy
-          const bulletDir = new THREE.Vector2(bullet.velocity.x, bullet.velocity.z).normalize();
-          const bulletToEnemyNorm = bulletToEnemy.clone().normalize();
-          const dotProduct = bulletDir.dot(bulletToEnemyNorm);
-
-          // If bullet heading towards enemy (dot > 0.5)
-          if (dotProduct > 0.5 && bulletDistance < 15) {
-            // React based on dodge skill and reaction time
-            if (Math.random() < enemy.dodgeSkill && currentTime - enemy.lastDodgeTime > enemy.dodgeCooldown) {
-              // Mark bullet as detected
-              enemy.detectedBullets.add(bullet.mesh);
-
-              // Calculate dodge direction (perpendicular to bullet)
-              const perpDir = new THREE.Vector2(-bulletDir.y, bulletDir.x);
-
-              // Randomly choose left or right dodge
-              if (Math.random() > 0.5) {
-                perpDir.negate();
-              }
-
-              // Stronger dodge for closer bullets
-              const dodgeStrength = (15 - bulletDistance) / 15;
-              dodgeVector.add(perpDir.multiplyScalar(dodgeStrength * 5));
-
-              enemy.lastDodgeTime = currentTime;
-
-              // Quick dash movement
-              enemy.behaviorState = 'flank';
-            }
+            // Reset to idle
+            if (enemy.leftLeg) enemy.leftLeg.rotation.x *= 0.9;
+            if (enemy.rightLeg) enemy.rightLeg.rotation.x *= 0.9;
           }
         }
 
-        // Clean up detected bullets that no longer exist
-        for (const detectedBullet of enemy.detectedBullets) {
-          if (!bullets.find(b => b.mesh === detectedBullet)) {
-            enemy.detectedBullets.delete(detectedBullet);
-          }
-        }
+        // === ATTACK SYSTEM ===
+        if (enemy.attackSystem) {
+          enemy.attackSystem.update(delta);
 
-        // === OBSTACLE AVOIDANCE ===
-        let avoidanceVector = new THREE.Vector2(0, 0);
-
-        // Avoid other enemies (prevent stacking)
-        for (let j = 0; j < enemies.length; j++) {
-          if (i === j || enemies[j].dead) continue;
-          const other = enemies[j];
-          const odx = enemy.mesh.position.x - other.mesh.position.x;
-          const odz = enemy.mesh.position.z - other.mesh.position.z;
-          const oDist = Math.sqrt(odx * odx + odz * odz);
-
-          if (oDist < 5) { // Personal space radius
-            const repulsion = (5 - oDist) / 5;
-            avoidanceVector.x += (odx / oDist) * repulsion * 2;
-            avoidanceVector.y += (odz / oDist) * repulsion * 2;
-          }
-        }
-
-        // Avoid terrain obstacles
-        for (const obj of terrainObjects) {
-          if (!obj.collidable) continue;
-          const odx = enemy.mesh.position.x - obj.x;
-          const odz = enemy.mesh.position.z - obj.z;
-          const oDist = Math.sqrt(odx * odx + odz * odz);
-
-          if (oDist < obj.radius + 3) {
-            const repulsion = (obj.radius + 3 - oDist) / (obj.radius + 3);
-            avoidanceVector.x += (odx / oDist) * repulsion * 3;
-            avoidanceVector.y += (odz / oDist) * repulsion * 3;
-          }
-        }
-
-        // === SMART MOVEMENT ===
-        const targetDx = enemy.targetPosition.x - enemy.mesh.position.x;
-        const targetDz = enemy.targetPosition.z - enemy.mesh.position.z;
-        const targetDistance = Math.sqrt(targetDx * targetDx + targetDz * targetDz);
-
-        // Keep moving until very close to player (not target position)
-        const isMoving = distance > 2.5;
-
-        if (isMoving && distance < enemy.aggroRange) {
-          enemy.walkTime += delta * 8;
-
-          // Leg animation - alternating swing
-          if (enemy.leftLeg && enemy.rightLeg) {
-            enemy.leftLeg.rotation.x = Math.sin(enemy.walkTime) * 0.5;
-            enemy.rightLeg.rotation.x = Math.sin(enemy.walkTime + Math.PI) * 0.5;
-          }
-
-          // Arm animation - opposite to legs
-          if (enemy.leftArm && enemy.rightArm) {
-            enemy.leftArm.rotation.x = Math.sin(enemy.walkTime + Math.PI) * 0.3;
-            enemy.rightArm.rotation.x = Math.sin(enemy.walkTime) * 0.3;
-          }
-
-          // Torso bobbing
-          if (enemy.torso) {
-            enemy.torso.position.y = 0.2 + Math.sin(enemy.walkTime * 2) * 0.05;
-          }
-
-          // Combine target direction with avoidance and dodging
-          const moveDirX = (targetDx / targetDistance) + avoidanceVector.x + dodgeVector.x;
-          const moveDirZ = (targetDz / targetDistance) + avoidanceVector.y + dodgeVector.y;
-          const moveLength = Math.sqrt(moveDirX * moveDirX + moveDirZ * moveDirZ);
-
-          if (moveLength > 0) {
-            const normalizedX = moveDirX / moveLength;
-            const normalizedZ = moveDirZ / moveLength;
-
-            // Speed variations based on behavior
-            let speedMult = 1.0;
-            if (enemy.behaviorState === 'retreat') speedMult = 1.5;
-            else if (enemy.behaviorState === 'flank') speedMult = 1.2;
-            else if (enemy.behaviorState === 'attack') speedMult = 1.3;
-
-            const newX = enemy.mesh.position.x + normalizedX * enemy.speed * speedMult;
-            const newZ = enemy.mesh.position.z + normalizedZ * enemy.speed * speedMult;
-
-            // Only move if not colliding with terrain
-            if (!checkTerrainCollision(newX, newZ)) {
-              enemy.mesh.position.x = newX;
-              enemy.mesh.position.z = newZ;
-            } else {
-              // If stuck, try moving perpendicular
-              const perpX = enemy.mesh.position.x + normalizedZ * enemy.speed;
-              const perpZ = enemy.mesh.position.z - normalizedX * enemy.speed;
-              if (!checkTerrainCollision(perpX, perpZ)) {
-                enemy.mesh.position.x = perpX;
-                enemy.mesh.position.z = perpZ;
-              }
-            }
-
-            // Look at player (with some smoothing)
-            const lookAtX = THREE.MathUtils.lerp(
-              enemy.mesh.rotation.y,
-              Math.atan2(dx, dz),
-              0.1
+          // Try to attack if in range (increased range)
+          const shouldAttack = distance < 7.0;
+          if (shouldAttack) {
+            enemy.attackSystem.tryAttack(
+              enemy.mesh.position,
+              camera.position
             );
-            enemy.mesh.rotation.y = lookAtX;
           }
-        } else {
-          // Reset to idle pose
-          if (enemy.leftLeg) enemy.leftLeg.rotation.x *= 0.9;
-          if (enemy.rightLeg) enemy.rightLeg.rotation.x *= 0.9;
-          if (enemy.leftArm) enemy.leftArm.rotation.x *= 0.9;
-          if (enemy.rightArm) enemy.rightArm.rotation.x *= 0.9;
+
+          // Check for hit during attack animation
+          const hitPlayer = enemy.attackSystem.checkHit(
+            enemy.mesh.position,
+            enemy.mesh.rotation.y,
+            camera.position
+          );
+
+          // Also check for overlap damage (when enemy clips into player)
+          const currentTime = Date.now();
+          const overlapDamage = enemy.attackSystem.checkOverlapDamage(
+            enemy.mesh.position,
+            camera.position,
+            enemy.lastAttackTime,
+            currentTime
+          );
+
+          if (hitPlayer || overlapDamage) {
+            const damage = enemy.attackSystem.getDamage();
+            health -= damage;
+            enemy.lastAttackTime = currentTime; // Update for overlap cooldown
+            soundManager.play('playerHurt', 0.5);
+            cameraShakeIntensity = Math.min(cameraShakeIntensity + 0.2, 0.25);
+
+            if (combo > 0) {
+              combo = Math.max(0, combo - 1);
+            }
+
+            updateGameState();
+
+            // Game over check
+            if (health <= 0) {
+              health = 0;
+              isGameOver = true;
+              updateGameState();
+              document.exitPointerLock();
+            }
+          }
+
+          // Update arm animations from attack system
+          const armRotations = enemy.attackSystem.getArmRotation();
+          if (enemy.leftArm && enemy.rightArm) {
+            if (enemy.attackSystem.getAttackState().isAttacking) {
+              enemy.leftArm.rotation.x = armRotations.left;
+              enemy.rightArm.rotation.x = armRotations.right;
+
+              if (enemy.torso) {
+                enemy.torso.rotation.x = enemy.attackSystem.getTorsoRotation();
+              }
+            } else {
+              // Idle arm animation
+              enemy.leftArm.rotation.x = Math.sin(enemy.walkTime + Math.PI) * 0.3;
+              enemy.rightArm.rotation.x = Math.sin(enemy.walkTime) * 0.3;
+
+              if (enemy.torso) {
+                enemy.torso.position.y = 0.2 + Math.sin(enemy.walkTime * 2) * 0.05;
+                enemy.torso.rotation.x *= 0.9;
+              }
+            }
+          }
         }
 
         // Damage flash animation
@@ -1862,32 +1816,8 @@ const ForestSurvivalGame = () => {
           enemy.damageFlashTime -= delta;
           const flashIntensity = Math.max(0, enemy.damageFlashTime);
 
-          // Flash red when damaged
           if (enemy.torso && enemy.torso.material instanceof THREE.MeshLambertMaterial) {
             enemy.torso.material.emissiveIntensity = 0.2 + flashIntensity * 2;
-          }
-        }
-
-        // Enemy attack with damage cooldown (500ms between hits)
-        if (checkCollision(camera.position, enemy.mesh.position, 2.5)) {
-          const now = Date.now();
-          if (now - lastDamageTaken > 500) {
-            health -= enemy.damage;
-            lastDamageTaken = now;
-            soundManager.play('playerHurt', 0.5);
-
-            if (combo > 0) {
-              combo = Math.max(0, combo - 1);
-            }
-
-            updateGameState();
-          }
-
-          if (health <= 0) {
-            health = 0;
-            isGameOver = true;
-            updateGameState();
-            document.exitPointerLock();
           }
         }
       }
@@ -1956,58 +1886,12 @@ const ForestSurvivalGame = () => {
 
       renderer.dispose();
     };
-  }, [gameStarted, aiConfig, gameMode, classicDifficulty, classicTimeOfDay]);
+  }, [gameStarted, gameMode, classicDifficulty, classicTimeOfDay]);
 
   // Handle mode selection
-  const handleModeSelection = (mode: 'ai' | 'classic') => {
-    setGameMode(mode);
-    if (mode === 'ai') {
-      setShowAPIKeyInput(true);
-    } else {
-      setShowClassicMenu(true);
-    }
-  };
-
-  // Handle API key submission
-  const handleAPIKeySubmit = (key: string) => {
-    setApiKey(key);
-    setShowAPIKeyInput(false);
-    setShowMenu(true);
-  };
-
-  // Handle skip AI (go to classic menu)
-  const handleSkipAI = () => {
-    setShowAPIKeyInput(false);
+  const handleModeSelection = () => {
     setGameMode('classic');
     setShowClassicMenu(true);
-  };
-
-  // Handle AI gameplay start
-  const handleAIGameStart = async (prompt: string) => {
-    setIsInitializingAI(true);
-    setAiError('');
-
-    try {
-      // Initialize AI agent
-      const agent = new AIGameAgent(apiKey, prompt);
-      const config = await agent.initialize();
-
-      aiAgentRef.current = agent;
-      setAiConfig(config);
-
-      // Show loading message with AI config
-      setPowerUpMessage(`🤖 AI configured: ${config.intensity} intensity, ${config.timeOfDay} mode`);
-      setTimeout(() => setPowerUpMessage(''), 4000);
-
-      soundManager.initialize();
-      setShowMenu(false);
-      setGameStarted(true);
-      setIsInitializingAI(false);
-    } catch (error) {
-      console.error('Failed to initialize AI:', error);
-      setAiError(error instanceof Error ? error.message : 'Failed to initialize AI. Please check your API key.');
-      setIsInitializingAI(false);
-    }
   };
 
   // Handle classic mode start
@@ -2034,48 +1918,7 @@ const ForestSurvivalGame = () => {
 
   // Main Menu (Initial Screen)
   if (gameMode === 'none') {
-    return <MainMenu onStartGame={handleAIGameStart} onClassicMode={() => handleModeSelection('classic')} t={t} />;
-  }
-
-  // API Key Input Screen (AI Mode)
-  if (showAPIKeyInput) {
-    return <APIKeyInput onSubmit={handleAPIKeySubmit} onSkipAI={handleSkipAI} />;
-  }
-
-  // AI Initializing Screen
-  if (showMenu) {
-    return (
-      <>
-        {isInitializingAI && (
-          <div className="fixed inset-0 bg-black bg-opacity-95 flex items-center justify-center z-50">
-            <div className="text-center">
-              <div className="text-6xl mb-4 animate-pulse">🤖</div>
-              <h2 className="text-3xl font-bold text-purple-400 mb-2">Initializing AI Game Director...</h2>
-              <p className="text-gray-400">Analyzing your gameplay preferences</p>
-              <div className="mt-6">
-                <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-purple-500 border-t-transparent"></div>
-              </div>
-            </div>
-          </div>
-        )}
-        {aiError && (
-          <div className="fixed top-6 left-1/2 transform -translate-x-1/2 bg-red-900 border-2 border-red-500 text-white px-6 py-4 rounded-xl z-50 max-w-md">
-            <p className="font-bold mb-1">⚠️ AI Initialization Failed</p>
-            <p className="text-sm">{aiError}</p>
-            <button
-              onClick={() => {
-                setAiError('');
-                setShowMenu(false);
-                setShowAPIKeyInput(true);
-              }}
-              className="mt-3 bg-red-700 hover:bg-red-600 px-4 py-2 rounded-lg text-sm transition-colors"
-            >
-              Try Again
-            </button>
-          </div>
-        )}
-      </>
-    );
+    return <MainMenu onClassicMode={handleModeSelection} t={t} />;
   }
 
   // Classic Mode Menu

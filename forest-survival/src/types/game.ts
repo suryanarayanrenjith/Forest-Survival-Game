@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { AIBehaviorSystem } from '../utils/AIBehaviorSystem';
+import { EnemyPerception } from '../utils/EnemyPerception';
+import { AttackSystem } from '../utils/AttackSystem';
 
 export interface Weapon {
   name: string;
@@ -90,7 +93,7 @@ export const WEAPONS: Record<string, Weapon> = {
     maxAmmo: 100,
     reloadTime: 3000,
     bulletSpeed: 3,
-    bulletColor: 0xff00ff,
+    bulletColor: 0xffaa00, // Realistic yellow-orange fire
     spread: 0.05,
     unlockScore: 800,
     autoFire: true,
@@ -145,6 +148,16 @@ export interface Enemy {
   lastDodgeTime: number;
   dodgeCooldown: number;
   detectedBullets: Set<THREE.Mesh>;
+  // Attack animation
+  isAttacking: boolean;
+  attackTime: number;
+  attackCooldown: number;
+  lastAttackTime: number;
+  // NEW: Advanced AI Systems
+  aiBehavior?: AIBehaviorSystem;
+  perception?: EnemyPerception;
+  attackSystem?: AttackSystem;
+  playerVelocity?: THREE.Vector3; // Track player velocity for prediction
 }
 
 export interface Bullet {

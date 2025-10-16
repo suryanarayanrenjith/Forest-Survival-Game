@@ -8,7 +8,7 @@ interface GameOverProps {
   t: (key: string) => string;
 }
 
-const GameOver = ({ isVictory, score, enemiesKilled, wave, onRestart, onMainMenu, t }: GameOverProps) => {
+const GameOver = ({ isVictory, score, enemiesKilled, wave, onRestart, onMainMenu }: GameOverProps) => {
   return (
     <div className="absolute inset-0 flex items-center justify-center overflow-y-auto p-4" style={{ background: 'linear-gradient(to bottom, #0a0e0a, #1a2e1a, #0d1f0d)' }}>
       {/* Dark overlay */}
